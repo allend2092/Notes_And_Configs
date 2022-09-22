@@ -1,0 +1,2317 @@
+
+
+Dropped Packets & trace dvSwitch
+Pktcap-uw --capture Drop
+Or
+Pktcap-uw --capture Drop -o - | tcpdump-uw -enr - 
+
+||||||||||  pktcap-uw --capture Drop --srcip 192.168.254.17 --dstip 192.168.254.18 -o - | tcpdump-uw -enr -
+
+Trace:
+Pktcap-uw --trace --srcip x.x.x.x 
+Or 
+Pktcap-uw --trace -o - | tcpdump-uw -enr -
+
+
+Do EICAR test on file share - eicar_SMB1
+
+vCenter version at cli
+vpdx -vl
+
++++++++++++++++++++++++++
+NSX-T
+desired_state_manager.json <-------realized objects
+11:03
+desired_state_policy.json <-------intended to be realized objects
++++++++++++++++++++++++++++++++++++++++
+
+NSX Database Access
+Please take NSX Manager backup before executing these steps. In some cases, /common being full may result in the backup operation failing to due to size of the database.
+
+1. Take NSX Manager backup.
+2. Stop bluelanemanager and app manager processes on NSX manager.
+   /etc/init.d/app-mgmt stop
+   /etc/init.d/bluelane-manager stop
+
+3. Please copy purge_events.sql and vacuum.sh files in step 5), 6) and place them on NSX manager in /common/em/downloads
+
+4. In NSX Manager root access edit the file /common/db/vshield/postgresql.conf
+Change
+   #synchronous_commit = on
+To
+   synchronous_commit = off
+save the file
+# psql -U secureall
+secureall=# SELECT pg_reload_conf();
+
+secureall=# SELECT * FROM pg_settings where name='synchronous_commit';
+-[ RECORD 1 ]---+------------------------------------------------------
+name | synchronous_commit
+setting | off
+ 
+5.drop existing functions, if applicable
+drop function if exists purge_events(INT);
+drop function if exists purge_logs(INT);
+drop function if exists purge_alarms();
+ 
+6.create new functions (attached script:purge_systemevents_alarms_auditLogs.sql)
+[root@manager ~]# psql -U secureall -f purge_systemevents_alarms_auditLogs.sql
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+ 
+7.purge events.
+[root@manager ~]# psql -U secureall -c 'select purge_events()';
+ 
+8.purge alarms
+[root@manager ~]# psql -U secureall -c 'select purge_alarms()';
+ 
+9.purge logs
+[root@manager ~]# psql -U secureall -c 'select purge_logs()';
+ 
+*Note: O/P of these cmds will return number if rows deleted by these functions.
+
+10. Run command : sh vacuum_full.sh and let the script complete execution.
+
+Download link for above script (vacuum_full.sh):
+( http://engweb.eng.vmware.com/bugs/files/0/2/2/2/5/8/3/5/vacuum._full.sh)
+Or
+https://confluence.eng.vmware.com/download/attachments/380633950/vacuum_full.sh?version=1&modificationDate=1549333922737&api=v2
+
+11. Please check disk consumption now in /common folder.
+
+12. Start bluelanemanager and app manager processes on NSX manager.
+   /etc/init.d/app-mgmt start
+   /etc/init.d/bluelane-manager start
+
+13. In NSX Manager root access; edit the file /common/db/vshield/postgresql.conf
+Change
+  synchronous_commit = off
+To
+  #synchronous_commit = on
+save the file
+# psql -U secureall
+secureall=# SELECT pg_reload_conf();
+
+secureall=# SELECT * FROM pg_settings where name='synchronous_commit';
+-[ RECORD 1 ]---+------------------------------------------------------
+name | synchronous_commit
+setting | on
+
+From <https://ikb.vmware.com/s/article/67082> 
+
+
+
+
+
+Notes for newbys:
+
+###########################################################
+list vms network adapters on a host
+###########################################################
+
+[root@esx-01a:/tmp] net-stats -l
+PortNum          Type SubType SwitchName       MACAddress         ClientName
+33554434            3       0 vmservice-vswitch 00:50:56:6c:0f:22  vmk1
+33554435            5       7 vmservice-vswitch 00:50:56:88:e2:66  Trend Micro Deep Security (1)
+33554436            5       9 vmservice-vswitch 00:50:56:88:71:66  Guest Introspection(esx-01a.corp.local)
+50331650            4       0 DvsPortset-0     00:50:56:01:df:db  vmnic1
+50331652            4       0 DvsPortset-0     00:50:56:01:df:da  vmnic0
+50331654            3       0 DvsPortset-0     00:50:56:01:df:da  vmk0
+50331655            3       0 DvsPortset-0     00:50:56:66:bc:8a  vmk2
+50331656            3       0 DvsPortset-0     00:50:56:6b:c0:8d  vmk3
+50331658            5       9 DvsPortset-0     00:50:56:88:04:ac  Win10-Internal-01a.eth0   <------------ dst vm
+50331659            5       9 DvsPortset-0     00:50:56:88:ad:0f  Win10-View-01a.eth0
+50331660            5       9 DvsPortset-0     00:50:56:88:b7:43  Web-01a.eth0              <------------ src vm
+50331661            5       7 DvsPortset-0     00:50:56:88:eb:8b  Trend Micro Deep Security (1).eth0
+50331662            5       9 DvsPortset-0     00:50:56:88:a1:73  Guest Introspection(esx-01a.corp.local).eth0
+[root@esx-01a:/tmp]
+
+###########################################################
+get firewall filter output:
+###########################################################
+
+
+[root@esx-01a:/tmp] summarize-dvfilter | grep -A 20 Web-01a
+world 70535 vmm0:Web-01a vcUuid:'50 08 9f 09 32 65 2a 43-23 b1 7d c6 f8 f7 75 05'
+ port 50331660 Web-01a.eth0
+  vNic slot 2
+  name: nic-70535-eth0-vmware-sfw.2
+ agentName: vmware-sfw
+   state: IOChain Attached
+   vmState: Attached
+   failurePolicy: failClosed
+   slowPathID: 2
+   filter source: Dynamic Filter Creation
+  vNic slot 4
+  name: nic-70535-eth0-serviceinstance-2.4
+ agentName: serviceinstance-2
+   state: IOChain Attached
+   vmState: Attached
+   failurePolicy: failOpen
+   slowPathID: 3
+   filter source: Dynamic Filter Creation
+  vNic slot 1
+  name: nic-70535-eth0-dvfilter-generic-vmware-swsec.1
+ agentName: dvfilter-generic-vmware-swsec
+   state: IOChain Attached
+[root@esx-01a:/tmp] summarize-dvfilter | grep  Web-01a
+world 70535 vmm0:Web-01a vcUuid:'50 08 9f 09 32 65 2a 43-23 b1 7d c6 f8 f7 75 05'
+ port 50331660 Web-01a.eth0
+[root@esx-01a:/tmp]
+
+###########################################################
+list rules applied to filter:
+###########################################################
+
+[root@esx-01a:/tmp] vsipioctl getrules -f nic-70535-eth0-vmware-sfw.2
+ruleset domain-c26 {
+  # Filter rules
+  rule 1025 at 1 inout protocol icmp icmptype 8 from addrset ip-vm-241 to addrset ip-vm-223 accept;
+  rule 1025 at 2 inout protocol icmp icmptype 0 from addrset ip-vm-241 to addrset ip-vm-223 accept;
+  rule 1008 at 3 inout protocol any from addrset ip-securitygroup-12 to any drop with log;
+  rule 1007 at 4 inout protocol any from any to addrset ip-securitygroup-12 drop with log;
+  rule 1023 at 5 inout protocol tcp from any to addrset ip-virtualwire-3 port 80 accept;
+  rule 1023 at 6 inout protocol tcp from any to addrset ip-virtualwire-3 port 443  |accept;
+  rule 1023 at 7 inout protocol tcp from any to addrset ip-virtualwire-3 port {32843, 32844, 32845} accept;
+  rule 1023 at 8 inout protocol tcp from any to addrset ip-virtualwire-3 port 5989 accept;
+  rule 1022 at 9 inout protocol tcp from addrset src1022 to addrset ip-ipset-3 port 443 accept;
+  rule 1022 at 10 inout protocol tcp from addrset src1022 to addrset ip-ipset-3 port 80 accept;
+  rule 1021 at 11 inout protocol tcp from addrset ip-virtualwire-5 to addrset ip-virtualwire-6 port 4001 accept;
+  rule 1021 at 12 inout protocol tcp from addrset ip-virtualwire-5 to addrset ip-virtualwire-6 port 4002 accept;
+  rule 1020 at 13 inout protocol tcp from addrset ip-virtualwire-4 to addrset ip-virtualwire-5 port 22443 accept;
+  rule 1020 at 14 inout protocol tcp from addrset ip-virtualwire-4 to addrset ip-virtualwire-5 port 443 accept;
+  rule 1020 at 15 inout protocol udp from addrset ip-virtualwire-4 to addrset ip-virtualwire-5 port 22443 accept;
+  rule 1020 at 16 inout protocol udp from addrset ip-virtualwire-4 to addrset ip-virtualwire-5 port 443 accept;
+  rule 1020 at 17 inout protocol tcp from addrset ip-virtualwire-4 to addrset ip-virtualwire-5 port 80 accept;
+  rule 1020 at 18 inout protocol tcp from addrset ip-virtualwire-4 to addrset ip-virtualwire-5 port 443 accept;
+  rule 1019 at 19 inout protocol tcp from addrset ip-virtualwire-4 to addrset dst1019 port 443 accept;
+  rule 1019 at 20 inout protocol tcp from addrset ip-virtualwire-4 to addrset dst1019 port 80 accept;
+  rule 1018 at 21 inout protocol any from addrset dst1019 to addrset dst1019 accept;
+  rule 1017 at 22 inout protocol any from addrset src1017 to addrset src1017 accept;
+  rule 1016 at 23 inout protocol tcp from any to addrset src1017 port 9443 accept;
+  rule 1016 at 24 inout protocol tcp from any to addrset src1017 port 443 accept;
+  rule 1016 at 25 inout protocol udp from any to addrset src1017 port 443 accept;
+  rule 1015 at 26 inout protocol tcp from addrset src1017 to addrset ip-virtualwire-5 port 22443 accept;
+  rule 1015 at 27 inout protocol udp from addrset src1017 to addrset ip-virtualwire-5 port 22443 accept;
+  rule 1014 at 28 inout protocol any from addrset src1017 to addrset ip-virtualwire-6 accept;
+  rule 1013 at 29 inout protocol tcp from addrset ip-ipset-5 to addrset ip-vm-223 port 3389 accept;
+  rule 1012 at 30 inout protocol udp from addrset ip-ipset-6 to any port 4118 accept;
+  rule 1012 at 31 inout protocol tcp from addrset ip-ipset-6 to any port 4118 accept;
+  rule 1011 at 32 inout protocol udp from any to addrset ip-ipset-6 port {4120, 4122} accept;
+  rule 1011 at 33 inout protocol udp from any to addrset ip-ipset-6 port 4119 accept;
+  rule 1011 at 34 inout protocol tcp from any to addrset ip-ipset-6 port {4120, 4122} accept;
+  rule 1011 at 35 inout protocol tcp from any to addrset ip-ipset-6 port 4119 accept;
+  rule 1003 at 36 inout protocol any from any to addrset ip-ipset-5 accept;
+  rule 1002 at 37 inout protocol ipv6-icmp icmptype 136 from any to any accept;
+  rule 1002 at 38 inout protocol ipv6-icmp icmptype 135 from any to any accept;
+  rule 1002 at 39 inout protocol icmp icmptype 8 from any to any accept;
+  rule 1002 at 40 inout protocol icmp icmptype 3 from any to any accept;
+  rule 1002 at 41 inout protocol icmp icmptype 0 from any to any accept;
+  rule 1010 at 42 inout protocol any from addrset ip-ipset-5 to addrset ip-ipset-7 drop;
+  rule 1009 at 43 inout protocol any from any to any drop;
+  rule 1001 at 44 inout protocol any from any to any accept;
+}
+
+ruleset domain-c26_L2 {
+  # Filter rules
+  rule 1004 at 1 inout ethertype any stateless from any to any accept;
+}
+
+###########################################################
+making sure the address set contains the ip of the vms:
+###########################################################
+
+[root@esx-01a:/var/log] vsipioctl getaddrsets -f nic-70535-eth0-vmware-sfw.2 | egrep -i "ip-vm-241|ip-vm-223" -A 3
+addrset ip-vm-223 {
+ip 172.16.30.10,
+ip fe80::d137:20b2:3271:7508,
+}
+addrset ip-vm-241 {
+ip 172.16.10.10,
+ip fe80::39cc:ef3d:1fbc:badf,
+}
+
+
+
+###########################################################
+how to restart firewall service:
+###########################################################
+[root@esx-01a:/var/log] /etc/init.d/vShield-Stateful-Firewall restart
+
+
+###########################################################
+How to list live traffic passing through DFW
+###########################################################
+
+[root@esx-01a:/var/log] vsipioctl getflows -f nic-70535-eth0-vmware-sfw.2 -t 1
+No records found
+No records found
+No records found
+No records found
+No records found
+
+Above output does not contain data, we need to enable flow collection
+
+[root@esx-01a:/var/log]  vsipioctl  setfilterflags -Override -f nic-70535-eth0-vmware-sfw.2 -G
+ 
+now we should see:
+
+[root@esx-01a:/var/log] vsipioctl getflows -f nic-70535-eth0-vmware-sfw.2 -t 1
+Count retrieved from kernel active=1, inactive=0, drop=0
+78be028e0000c7e9 Active icmp 0800 OUT 1025 0 0  172.16.10.10 -> 172.16.30.10 8 0 154980 154980 2583 2583
+Count retrieved from kernel active=1, inactive=0, drop=0
+78be028e0000c7e9 Active icmp 0800 OUT 1025 0 0  172.16.10.10 -> 172.16.30.10 8 0 155040 155040 2584 2584
+Count retrieved from kernel active=1, inactive=0, drop=0
+78be028e0000c7e9 Active icmp 0800 OUT 1025 0 0  172.16.10.10 -> 172.16.30.10 8 0 155100 155100 2585 2585
+Count retrieved from kernel active=1, inactive=0, drop=0
+78be028e0000c7e9 Active icmp 0800 OUT 1025 0 0  172.16.10.10 -> 172.16.30.10 8 0 155160 155160 2586 2586
+Count retrieved from kernel active=1, inactive=0, drop=0
+78be028e0000c7e9 Active icmp 0800 OUT 1025 0 0  172.16.10.10 -> 172.16.30.10 8 0 155220 155220 2587 2587
+Count retrieved from kernel active=1, inactive=2, drop=0
+ 
+
+
+Check how many times the rule is hit:
+vsipioctl getrules -f nic-70535-eth0-vmware-sfw.2 -ssu
+
+###################################################################################################
+Remove dfw filter from VM:
+First stop vsfwd so that the rule doesn't immediately get pushed again# summarize-dvfilter |grep -I <VM name> -A 10
+   - This command will generate the slot 2 firewall nic necessary to run the subsequent commands
+# vsipioctl getrules -f <slot 2 nic> |less
+   - Get the domain number necessary for the next command
+# vsipioctl vsipfwcli -Override -f <vnic name you captured from above command> -c "create ruleset <ruleset name>;"
+   - This command deletes all the rules associated with the vnic on the vm and replaces the rules with none to open up the vm to regain connectivity.
+Note: If the Platform Services Controller is separate from vCenter you need to do the same steps on the PSC to regain access
+
+
+
+
+
+
+root passwords for NSX
+	5.0 root:  he8VHx5$
+	5.1 root:  68BOrzjeoN
+	68BOrzjeoN5
+	68BOrzjeoN
+	IAmOnThePhoneWithTechSupport 
+
+	
+Find NSX Manager Version from the logs.
+	./status/system/sys_info 
+	grep -rl "6." ./ 	
+
+
+forgot password?
+
+	vSM 5.1 Postgre SQL
+	1) TAKE A SNAPSHOT!!!!
+	2) Login as root
+	3) enable >> st en
+	4) Psql -U secureall
+	5) select * from domain_object where user_id='admin'; - should come back with password hash
+	6) delete from domain_object where user_id='admin'; 
+	7) select * from key_value_store where context='com.vmware.vshield.vsm.security.service.impl.DefaultUserAddition';
+	8) delete from key_value_store where context='com.vmware.vshield.vsm.security.service.impl.DefaultUserAddition';
+	9) \q to exit PSQL
+	10) Log all the way out of VSM and log back in as admin
+	11) Got to config t and run "web-manager restart" 
+
+Database stuff:
+
+	Dump the contents of the DB to a file:	
+		# pg_dump -U secureall > /tmp/<filename>.db
+
+	copy contents from postgres
+		copy (select name,pem_encoding,private_key from domain_object where objectid like '%certificate-%') to '/tmp/cert_psql.txt'(format csv, delimiter ';');
+		
+	copy contents of DB from cli to text file"
+		psql -U secureall -c "select name,pem_encoding,private_key from domain_object where objectid like '%certificate-%';" > cert_out.txt
+		
+	Restore a customer DB from a DB dump.
+		1. Dump customer DB: 
+			# pg_dump -U secureall > /tmp/nsx-db.sql
+		2. SCP file to the new Manager
+		3. Delete DB scheme:
+			# DROP SCHEMA public CASCADE;
+		4. Create a new schema:
+			# CREATE SCHEMA public;
+		5. Import db into new blank db
+			# \i /tmp/nsx-db.sql
+		6. Reboot NSX Manger after import completes. 
+
+	Check size of tables in DB:
+		SELECT nspname || '.' || relname AS "relation",
+		pg_size_pretty(pg_relation_size(C.oid)) AS "size"
+		FROM pg_class C 
+		LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+		WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+		ORDER BY pg_relation_size(C.oid) DESC
+		LIMIT 20;
+		
+		-------or-------
+		
+		SELECT relname as "Table", pg_size_pretty(pg_total_relation_size(relid)) As "Size", pg_size_pretty(pg_total_relation_size(relid) - pg_relation_size(relid)) as "External Size" FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC; 
+		
+		Clean the tables:			
+			First try vaccum:
+				VACUUM (FULL) job_instance_task_instances;
+				VACUUM (FULL) task_instance_task_data;
+				VACUUM (FULL) task_instance_task_output;
+				VACUUM (FULL) task_instance;
+				VACUUM (FULL) task_task_init_data;
+				VACUUM (FULL) task;
+				VACUUM (FULL) task_policy;
+				VACUUM (FULL) task_target;
+				VACUUM (FULL) job_instance_job_output;
+				VACUUM (FULL) job_instance;
+				VACUUM (FULL) job_data_task_dependency_map;
+				VACUUM (FULL) task_dependency_tasks;
+				VACUUM (FULL) dependent_task;
+				VACUUM (FULL) job_data;
+				VACUUM (FULL) job_schedule;
+				VACUUM (FULL) task_dependency;
+						
+			if fails, then truncate them:
+				TRUNCATE TABLE  job_instance_task_instances, task_instance_task_data,task_instance_task_output,task_instance,task_task_init_data,task ,task_policy ,task_target, job_instance_job_output, job_instance, job_data_task_dependency_map, task_dependency_tasks,dependent_task,job_data,job_schedule,task_dependency,housekeeping_module;
+
+	Remove IP from ip pool
+		delete from ipam_allocated_ip_address where subnet = 'subnet-2'; 	
+		or
+		delete from ipam_allocated_ip_address where objectid = 1620;
+		
+	Shrink the ip pool
+		UPDATE ipam_ip_range SET range_end_display = '10.222.98.15' WHERE ID = 'iprange-11';
+		UPDATE ipam_ip_range SET range_end = '182346255' WHERE ID = 'iprange-11';	
+	
+	DB update for API not working:
+		SELECT is_cli from domain_object WHERE user_id = 'admin'; -------------------------> if N then  do this:
+			UPDATE domain_object SET is_cli='Y' WHERE user_id='admin'; 	
+		
+	Find VTep information from the NSX Manager DB
+		Select h.host_id,d.name,h.status,h.cluster_id,v.allocated_ip_id as ip, c.ip_pool_id, ip.ip_address from xvs_vmknic_info v, xvs_host_info h, vdn_cluster c, ipam_allocated_ip_address ip,domain_object d where v.host_id = h.id and c.cluster_id = h.cluster_id and ip.objectid = v.allocated_ip_id and d.objectid = h.host_id;	
+		
+	Change alarms  and alerts on virtual wire (logical switches)
+		TABLE vdn_virtual_wire;
+		UPDATE vdn_virtual_wire SET status = '0' WHERE status='2';	
+		
+	NSX Manager Tables where hosts are stored:
+		vim_compute_resource_host_ids    			Inventory    Host to cluster mapping
+		vim_distributed_virtual_switch_host_member  Inventory    host to dvS mapping
+		vim_host_system_datastore_ids    			Inventory    datastore to ESXi host mapping
+		vim_host_system_network_ids    				Inventory    Network/PG to ESXi host mapping
+		vim_host_system_nic_info    				Inventory    vmk/IP/PG to host mapping
+		vim_host_system_vm_ids    					Inventory    vm to ESXi host mapping	
+		
+	How to search domain object:
+		select * domain_object where objectid like 'controller%';	
+		
+	Remove SSO coinfig from NSX DB
+		# delete from ssoconfig where lookup_service_certificate_store_id = 'certificate-15';
+		# delete from domain_object where objectid = 'certificate-15';
+		
+		
+		
+		
+Controller stuff:
+				
+	get into root for edges.
+		First get to root in manager then go here and run this:
+			/home/secureall/secureall/sem/WEB-INF/classes> ./GetSpockEdgePassword.sh
+			Then on edge go do this	
+				edge-2489> st e
+				
+	get root for controllers
+		First get to root in manager then go here and run this:
+			/home/secureall/secureall/sem/WEB-INF/classes/GetNvpApiPassword.sh controller-1
+			login to controller
+				: debug os-shell	
+	
+		Central CLI
+			show control-cluster logical-routers instance all
+		
+		finds connections for hosts
+			show control-cluster logical-routers connections 0x30d40 
+		
+		check arp tables on controllers:
+			show control-cluster logical-switches arp-table 5002
+		
+		find vteps associated with VNIs. 
+			show control-cluster logical-switches connection-table 5002
+			
+	Make NOOP Change
+		Log into Controller as root
+			cd /sys/block/sda/queue/
+			echo noop > scheduler
+			
+			
+	Pull logs from CLI for controllers:
+		save status-report controller-id
+		copy <filename> user@scphost:/path/to/upload
+		
+	re-sync controllers via api
+		# curl -v -H "Content-Type:application/xml" -k -u admin -X PUT https://localhost/api/2.0/vdn/controller/synchronize
+		
+		
+	Fix Stuck Controller Deployment/upgrade	
+		Possible status for failed upgrades
+		1. NOT_STARTED
+		2. DOWNLOADING_UPGRADE_FILE -> Controller node downloading the nub file
+		3. DOWNLOAD_COMPLETE -> Controller node downloaded the file completely
+		4. UPGRADING -> controller node upgrade API invoked
+		5. REBOOTING -> Controller node rebooting after upgrade
+		6. REBOOTED -> Controller node rebooted
+		7. FAILED -> upgrade failed (Controller still running old build or did not come up after reboot)
+		8. UPGRADED -> upgrade finished	
+		
+		secureall=# table vnvp_controller;
+			-[ RECORD 1 ]----+-------------------------------------------------------------------------------------------------
+			objectid | controller-4
+			status | DEPLOYED
+			creator_vsm_id | 420F7982-F412-5979-A8BA-4F19D4FF4D1B
+			public_key | 4C:CB:2C:85:E0:9F:85:9F:A2:17:15:82:7E:AF:C9:73:06:DA:22:AA
+			api_thumbprint | 97:25:06:A7:85:37:EE:20:FF:5F:2A:53:15:46:43:D0:C4:EF:8C:64
+			api_user | admin
+			api_password | c8178d674b85a5f11af81573f2e36b2cd452246d27d678e8dd0c06f3e8282b160c91b91a645aa6a37f9ff55b6ca98203
+			root_password | 8433f4a07a93cc2b9b65958da59a3b5bfe36eb08950431eb4dd4201d05aaaade589fd8ce421d482d03e2fde2c0c7b8fa
+			vm_uuid | vm-88030
+			ip_pool_id | ipaddresspool-1
+			version_number | 47844
+			upgrade_status | UPGRADING    <------------------------------------------------------------------------ change this status
+			unique_id | 4
+			vm_status | POWERED_ON
+			vm_instance_uuid | 5009a90a-5003-21d1-8c09-72d5036f79c0	
+		
+			Update DB
+				# update vnvp_controller set upgrade_status = 'FAILED' where objectid = 'controller-9'; 
+			
+			Remove controllers: 
+				# select * from vnvp_controller where objectid = 'controller-9';
+				# delete from vnvp_controller where objectid = 'controller-9';
+				# select * from domain_object where objectid = 'controller-9';
+				# delete from domain_object where objectid = 'controller-9';
+		
+	List arp table for esx mgmt
+		# esxcfg-route -n 
+			or 
+		# esxcli network ip neighbor list
+		
+	List arp table for vteps
+		# esxcli network ip neighbor list -N vxlan
+		
+	Tests for multi cast:
+		Get vxlan vmks:
+			# esxcli network ip interface ipv4 get -N vxlan
+		Get multi cast group info for effected VNI	
+			# net-vdl2 -l | grep -A5 <vni>
+		Ping multicast group ip			
+			# vmkping ++netstack=vxlan -I vmk<vmk#> <multicast ip address>
+			Failed Example:
+				PING 225.1.4.184 (225.1.4.184): 56 data bytes
+				64 bytes from 10.20.32.150: icmp_seq=0 ttl=64 time=0.070 ms
+				64 bytes from 10.20.32.150: icmp_seq=1 ttl=64 time=0.060 ms
+				64 bytes from 10.20.32.150: icmp_seq=2 ttl=64 time=0.115 ms
+			Good Example:
+				PING 225.1.4.184 (225.1.4.184): 56 data bytes
+				64 bytes from 10.20.32.150: icmp_seq=0 ttl=64 time=0.068 ms
+				64 bytes from 10.20.32.24: icmp_seq=0 ttl=64 time=0.291 ms (DUP!)
+				64 bytes from 10.20.32.37: icmp_seq=0 ttl=64 time=0.381 ms (DUP!)
+				64 bytes from 10.20.32.150: icmp_seq=1 ttl=64 time=0.466 ms
+				64 bytes from 10.20.32.37: icmp_seq=1 ttl=64 time=0.520 ms (DUP!)
+				64 bytes from 10.20.32.24: icmp_seq=1 ttl=64 time=0.531 ms (DUP!)
+				64 bytes from 10.20.32.150: icmp_seq=2 ttl=64 time=0.067 ms
+				64 bytes from 10.20.32.37: icmp_seq=2 ttl=64 time=0.260 ms (DUP!)
+				64 bytes from 10.20.32.24: icmp_seq=2 ttl=64 time=0.357 ms (DUP!)
+			
+
+Endpoint GI stuff: 
+
+	vSheild test endpoint scanning eicar test file
+		X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*
+		
+	vsheild driver unload while running
+		# fltmc unload vsepflt
+		# fltmc load vsepflt
+		or for windows 10
+			# sc query vnetwfp	
+	Check the linux Agent:
+		service vsepd status	
+	
+	Check the status of the vnetflt
+		# driverquery
+		
+	Check Rabbit MQ status:
+		# rabbitmqctl list_connections	
+		
+		
+	Collect UVSM Logs
+		# curl -k -u admin -L -X GET https://localhost/api/1.0/hosts/host-34/techsupportlogs > ./techsupportlogs.log.gz 
+		or
+		# curl -v -H "Content-Type:application/xml" -k -u admin -X GET  https://localhost/api/1.0/hosts/host-34/techsupportlogs > ./techsupportlogs.log.gz 
+		# scp ./techsupportlogs.log.gz root@esxcomp-02a.corp.local:/vmfs/volumes/b2476f72-4b94792e/UVSM_Logs/
+	
+	Collect Journal logs (run on GI USVM cli)		
+		# journalctl > journal.log
+	
+	
+    Enabled ssh daemon for GI VM:
+		# service sshd start
+	 
+	Allow files to be sent out of GI VM (6.3.x or higher) enabling SSH
+		# https://bugzilla.eng.vmware.com/show_bug.cgi?id=2194374
+		
+	 
+	Allow files to be sent out of GI VM	 (prior to 6.3.x)
+		 Disable firewall:
+			# iptables --policy INPUT ACCEPT
+			or
+			# service iptables stop
+		 Edit /opt/vmware/etc/dlp/iptables.rules and change first three DROP to ACCEPT: 
+			# sed -i '/^\-P/s/DROP/ACCEPT/g' /opt/vmware/etc/dlp/iptables.rules
+		 Run start_firewall.sh to restart firewall:
+			# /opt/vmware/etc/dlp/start_firewall.sh
+		Files to scp out:
+			/usr/local/usvmmgmt/log/eventmanager*
+			/var/log/usvm*
+			/var/log/messages*
+			
+	Allow files to be sent (6.3.x)
+		start ssh
+			# service sshd start
+		disable firewall
+			# service iptables stop
+			
+	Enabled Debug for epseclib	 
+		 # echo ENABLE_DEBUG=TRUE > /etc/epseclib.conf; echo ENABLE_SUPPORT=TRUE >> /etc/epseclib.conf
+		should look like this:
+			# cat /etc/epseclib.conf
+				ENABLE_DEBUG=TRUE
+				ENABLE_SUPPORT=TRUE	 
+	Set Mcafee to debug level
+		# sudo /opt/McAfee/move/bin/chloglevel DEBUG DEBUG DEBUG
+	Start the syslog service on McAfee
+		# sudo bash
+		# sed -i '/^\*/s/\*/\#\*/g' /etc/rsyslog.d/25-discard.conf; service rsyslog restart
+	gather sylogs:
+		/var/log/syslog 		
+				
+		 
+	Enabled Debug logging for the USVM
+		# curl -v -H "Content-Type:application/xml" -k -u admin -X POST -d "<logginglevel><loggerName>com.vmware.vshield.usvm</loggerName><level>DEBUG</level></logginglevel>" https://localhost/api/1.0/usvmlogging/host-446535/changelevel
+			
+	Enable Debug for Mux
+		# echo ENABLE_SUPPORT=TRUE > /etc/muxconfig.conf; echo ENABLE_DEBUG=TRUE >> /etc/muxconfig.conf
+		should look like this:
+			# cat /etc/muxconfig.conf
+				ENABLE_SUPPORT=TRUE
+				ENABLE_DEBUG=TRUE
+		Increases syslog log sizes from 1024 to 102400 so logs don't roll
+			Host -> manage -> settings -> advanced system settings -> syslog.loggers.syslog.size
+
+	Collect logs from VM with issues 
+		suspend vm and copy the ".vmem" and ".vmss" files from that datastore to /vmfs/volumes/58d1abff-0548ddea-c420-0025b500002b/GI_Debug_Logs
+			How to find VM location:
+				# find /vmfs/volumes -name *.vmx | grep -i <vmname goes here>
+				# cd <Location of vmxfile>
+				# cp *.vmem *.vmss  /vmfs/volumes/58d1abff-0548ddea-c420-0025b500002b/GI_Debug_Logs
+				
+	Collect core from mux (run on the esxi host) files are put into /var/core
+		# ps -c| grep mux
+		# vsish -e set /userworld/cartel/<WID of mux>/debug/livecore 1	
+
+	How do disable Network Events manually on one GI VM (or remove vnetflt)
+		1. log into manager as root and get root passwords for GI VMs
+				#  /home/secureall/secureall/sem/WEB-INF/classes/GetEpsecAppliancePassword.sh
+		2. open console to one GI vm, log in as "root", and enable SSH
+				#  service sshd start
+		3. edit the config file on the GI VM and then restart the service   
+				#  sed -i 's/handle.network.enabled=true/handle.network.enabled=false/g' /usr/local/usvmmgmt/config/em.properties
+				#  rcusvm restart              
+		4. verify change was made
+				#  grep handle.network.enabled /usr/local/usvmmgmt/config/em.properties
+					 Should return the following if change was successful: handle.network.enabled=false
+		how to undo
+			# sed -i 's/handle.network.enabled=false/handle.network.enabled=true/g' /usr/local/usvmmgmt/config/em.properties
+			
+	How to enable debugview logging (vsepflt):
+		- download debug view utility: https://docs.microsoft.com/en-us/sysinternals/downloads/debugview
+		- edit registry so logging from vsep is logged to the debugview console.
+			# regedit ->  HKLM\System\CurrentControlSet\Services\vsepflt\
+				Create a key called "Parameters" if not already created
+				# new DWORD: log_dest         Value: 0x1
+				# new DWORD: log_level        Value: 0x10
+		- unload and reload the vsep driver so the registry changes take effect.
+			# fltmc unload vsepflt
+			# fltmc load vsepflt
+		- start debugview utility    
+			# Click Capture -> Capture Kernel
+			# Click Capture -> Enable Verbose Kernel output	
+			
+			
+	Remove vnetflt driver with auto vmware tools install script:
+		/s /v"/qn ADDLOCAL=All REMOVE=NetworkIntrospection"
+	
+	Remove GI from the DB:
+		https://bugzilla.eng.vmware.com/show_bug.cgi?id=1646049#c2
+		
+		secureall=# table deployment_unit;
+		 service_id | service_instance_id |              agency_id               | fabric_status | health_status | fabric_operation_status |     objectid     | installed_service_version
+		------------+---------------------+--------------------------------------+---------------+---------------+-------------------------+------------------+---------------------------
+		 service-4  |                     | f9236d4d-fa0f-482e-a3be-e6518dbc74dc | ENABLED       | SUCCEEDED     |                         | deploymentunit-1 | 6.2.0
+		 service-4  |                     | 10128a07-5a4a-4736-9ec2-bf06da48e4ad | ENABLED       | SUCCEEDED     |                         | deploymentunit-7 | 6.2.0
+		 service-6  |                     |                                      |               | SUCCEEDED     | CREATED                 | deploymentunit-3 | 6.2.0
+		 service-4  |                     | 1c48ff64-fd9c-40f8-9519-beeb5992a615 | ENABLED       | SUCCEEDED     |                         | deploymentunit-4 | 6.2.0
+		 service-4  |                     |                                      |               | SUCCEEDED     | CREATED                 | deploymentunit-2 | 6.2.0
+		 
+		 secureall=# select * from domain_object where objectid='deploymentunit-3';
+		-[ RECORD 1 ]--------------------+------------------------
+		dtype                            | DeploymentUnit
+		objectid                         | deploymentunit-3
+		cascade_event_to_parent          | t
+		cascade_parent_delete            | f
+		description                      |
+		name                             | domain-c55856_service-6
+		objecttype                       | DeploymentUnit
+		path                             | /deploymentunit-3
+
+		delete from deployment_unit where service_id='service-6';
+		delete from domain_object where objectid = 'deploymentunit-3';
+		
+	
+	Read information for a VM for namespacedb
+		# touch dp_namespace.sh
+		# vi dp_namespace.sh
+		- copy paste below:
+			import pyVmomi
+			import sys
+			from pyVmomi import vim
+			from pyVim.connect import SmartConnect, Disconnect
+			from pyVim import folder
+			si = SmartConnect()
+			search_index = si.content.searchIndex
+			nsmgr = si.RetrieveInternalContent().vmNamespaceManager
+			NAMESPACE = "guest_introspection"
+
+			# find the VM
+			vm = folder.Find(sys.argv[1])
+			# vm = search_index.FindByUuid(None, '<VM-UUID>', True, False) # replace <VM-UUID> with the VM's BIOS UUID
+			# If you want to use the VM's vCenter Instance UUID, change last argument to True
+			if vm is None:
+				print("No such VM found")
+				sys.exit()
+
+			# check if guest_introspection namespace is present
+			if NAMESPACE not in nsmgr.ListNamespaces(vm):
+				print("No such namespace found")
+				sys.exit()
+
+			# read value from the namespace
+			try:
+				datalist = nsmgr.RetrieveData(vm, NAMESPACE).dataInfo
+				value = datalist[0].value
+			except:
+				print("Unable to read value")
+				sys.exit()
+			print("Value:", value)
+		# chmod 777 dp_namespace.sh	
+		# python dp_namespace.sh <vmname>
+
+		OUTPUT:
+			[root@esx-01a:/var/run]  python dp_namespace.sh Win10-View-01a
+			No such namespace found
+			[root@esx-01a:/var/run] python dp_namespace.sh Win10-Internal-01a
+			Value: /vmfs/volumes/5af32fae-1bbfa1c1-05f3-00505601dfda/Win10-Internal-01a_1/Win10-Internal-01a.vmx,vm-223,7498352642083520512|1|43009999
+			[root@esx-01a:/var/run] cat dp_namespace.sh
+
+
+DLR Stuff: 
+
+	esxcli network vswitch dvs vmware vxlan network arp list --vds-name="dvSwitch: CAR Premium" --vxlan-id=5001 
+	net-vdr -l -C
+	net-vdr -l -I
+	net-vdr -l --route default+edge-1
+	net-vdr -l --nbr default+edge-1
+	net-vdr -R -l default+edge-2 both host sides
+	net-vdr -L -l -n 138800000002<Interface ID from the NBR> default+edge-1
+	net-vdr --cplane --syncState default+edge-40da689f-3848-406e-a71a-2c0ef350503b
+	net-vdr --cplane --stats default+edge-40da689f-3848-406e-a71a-2c0ef350503b
+	
+	
+	Check if the teaming policy is wrong!
+	 # net-vdl2 -S -s <vmname> -n <VNI>
+	
+		[root@esxgw-lab22ch-2:/var/log] net-vdl2 -S -s fabric-1-edge -n 18007
+			tx.total: 0
+			tx.nonUnicast: 0
+			tx.crossRouter: 0
+			tx.drop.total: 0
+			rx.total: 0
+			rx.mcastEncap: 0
+			rx.crossRouter: 0
+			rx.drop.wrongDest: 16174 <-------------------------- look for this value
+
+	
+	change netcpa logging (persistant)
+		# vi /etc/vmware/netcpa/netcpa.xml
+		Change:
+			<log>
+			   <directory>/var/log/vmware/</directory>
+			   <name>netcpa</name>
+			   <outputToConsole>false</outputToConsole>
+			   <outputToFiles>false</outputToFiles>
+			   <!-- log level is one of the 2 user configurable setting -->
+			   <!-- configurable levels : panic, error, warning, info, verbose, trivia -->
+			   <!-- log levels are listed in increasing amount of logging done -->
+			   <!-- use trivia to get most detailed logging for providing logs to VMware Support -->
+			   <maxFileSize>524288</maxFileSize>
+			   <maxFileNum>8</maxFileNum>
+				<level>warning</level>		
+		# /etc/init.d/netcpad restart
+		Check the status
+		# /usr/lib/vmware/netcpa-cli/netcpaCli get loglevel
+		
+	
+	net-vdr -L -l default+edge-74805a1c-06d0-480b-9c00-663267b084b1 <<<<<< lists the lifs
+	
+	net-vdr --route -a -i 0.0.0.0 -M 0.0.0.0 -g 10.192.254.105 default+edge-9
+	get lifts:
+		net-vdr -lL  default+edge-b8cb429b-c003-4f86-9d79-223095d5d078
+		
+	central CLI
+		show logical-router host host-31 dlr all verbose
+		show logical-router host host-31 dlr all brief
+		show logical-router host host-31 dlr default+edge-6 route
+		
+	get vdr instance port number:
+		esxcli network vswitch dvs vmware vxlan network port list --vds-name=Compute_VDS --vxlan-id=5003
+	
+    show routes on controllers:
+		show control-cluster logical-routers instance all
+		show control-cluster logical-routers routes 0xdbba0
+		
+	central CLI:
+		show logical-router controller master dlr default+edge-3 brief 
+		show logical-router controller master dlr default+edge-3 route	
+
+	force remove DLR control VM. 	
+			DELETE https://<NSX_MANAGER_IP>/api/4.0/edges/<edge-id>/appliances/<ha-index>
+	
+	Troubleshoot DLR HA config:
+		show service highavailability link
+		Ping between links, it will look like 169.354.1.5 etc.	
+	
+	Running out of Macs on VNI:
+		1. get dvs name 
+			# esxcfg-vswitch -l
+		2. get VNI number 
+			# net-vdl2 -l
+		3. List number of times VNI was full
+			# net-vdl2 -S -s DVS-D4X -n 5029
+		4. list all macs:
+			# net-vdl2 -M mac -s DVS-D4X -n 5029
+		5. reset all macs
+			# net-vdl2 -M mac --reset -s DVS-D4X -n 5029
+			
+			
+			
+			
+Performance stuff:
+	collecting net-stats for engineering
+		# net-stats -A -t WwQqi -i 5 > netstats.txt
+			
+	disable IPFIX
+	# net-dvs -u com.vmware.etherswitch.port.ipfix -p <DVportID> <DVS-name>
+		shrink IPFIX:
+			# localcli system module parameters set -p "ipfixHashTableSize=16384" -m ipfix    <== 16k
+			# localcli system module parameters set -p "ipfixHashTableSize=32768" -m ipfix    <== 32k	
+
+
+Edge stuff:
+
+	IPSEC 
+		Look for this:
+		2016-03-17T11:54:20+00:00 vse-4c4901fe-b252-486a-b1d8-0daf52349708-0 ipsec[2090]: [6bef3041-7054-43c8-ab73-a376c3d8b6dd]:  [authpriv.warning] "216.201.117.242_192.168.200.0/24-68.180.76.51_137.170.236.0/24/1x1" #564: transition from stat
+		e STATE_MAIN_R0 to state STATE_MAIN_R1
+		
+	Find start of Edge logs:
+		-----------------------------------------------------------------------
+		vShield Edge Logs:	
+	
+	load Balancer:
+		application rules for server/client session timeoutes (not session closes to the VIP)
+			no option http-server-close
+
+	Find when a edge lost bgp neighbor and more edge info.
+		grep -hE "eventCode (BGP_NEIGHBOUR_UP|BGP_NEIGHBOUR_DOWN)" logs/management_service/vsm.log* | sed -r 's#^([[0-9-]+) ([0-9:]+)\.[0-9]+ BST.*eventCode (BGP_NEIGHBOUR_UP|BGP_NEIGHBOUR_DOWN).*edgeId=(edge-[^,]+), bgp_neighbor_ip_address=([0-9.]+),.*, hostId=(host-[0-9]+),.*$#\1T\2+01:00: \4 (ESXi \6) -> \3 to \5#' | sort
+
+	Prevent Edge from being removed if deployment fails 
+		Set "deleteEdgeVmOnFailure=false" and restart NSX Manager, to retain the Edge VM for debugging on deployment failure.
+		file = /home/secureall/secureall/sem/WEB-INF/classes/edge.properties 
+		
+		
+		
+dfw firewall stuff:
+
+	Enable Debug logging:
+		vsipioctl setverbose -c DP -v 7
+		vsipioctl setverbose -c DP -v 3 
+		
+	Query a single section:
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/4.0/firewall/globalroot-0/config/layer3sections?name='dvs.VCD_1234_Wholeyj_Telephonica'
+
+	rules live
+		summarize-dvfilter |grep -w "vNic slot 2" -C 2
+		
+		vsipioctl getflows -f nic-627569-eth0-vmware-sfw.2 -t 1
+		create rules
+			# vsipioctl setfilterflags -f <filtername> -G
+		remove all rules
+			# vsipioctl getrules -f <filter-name> 
+				to get the ruleset of the firewall. There should be two rulesets, such as domain-c7 and domain-c7_L2. The first ruleset like domain-c7 is the one you need to remove.
+			# vsipioctl vsipfwcli -f <filter-name> -c "create ruleset <ruleset-name>;" to clear the ruleset.
+		look at xml files:
+			# xmllint --format firewall-configuration-12162016.xml  | less
+			
+		Possibly remove all filters:
+			vsipioctl clearallfilters 		
+	
+	Check heaps:
+		# for n in $(vsish -e ls /system/heaps|grep vsip); do echo $n; vsish -e get /system/heaps/$n'stats'| grep -e "Name\|percent free of max\|failed\|current heap size\|maximum heap size"; done
+		# for vh in `vsish -e ls /system/heaps | grep vsip`;do amax=`vsish -e cat /system/heaps/${vh}stats | grep "maximum bytes available" | awk '{FS=":"}{print $2;}'`;smax=`vsish -e cat /system/heaps/${vh}stats | grep "maximum heap size" | awk '{FS=":"}{print $2;}'`;free=`vsish -e cat /system/heaps/${vh}stats | grep "percent free of current size" | awk '{FS=":"}{print $2;}'`;echo -e "Heap "$vh\\n " Max Available:    " $amax\\n " Max Size:         " $smax\\n " % Free Currently: " $free\\n;done
+	Explination of heaps:
+		 - Heap 1 – Filters 512MB
+		 - Heap 2 – Rules and Containers 1,535MB
+		 - Heap 3 – Connections 1,535MB
+		 - Heap 4 – Discovered IPs 383MB
+		 - Heap 5 – Drop Flows 256MB
+		 
+	Check memory usage for DFW:
+		vsipioctl getmeminfo
+		 
+	
+	Increasing HEAP size:
+		Increase just heap value
+			# esxcli system module parameters set -p DVFILTER_HEAP_MAX_SIZE=276834000 -m dvfilter
+		Increase amount of filters, also will increase heap value.	
+			# esxcli system module parameters set -a -p dvfiltersMaxFilters=16384 -m dvfilter
+		
+	Disable IPV6 for NSX Manager DFW	
+		# echo firewall.collectipv4only=true >> /home/secureall/secureall/sem/WEB-INF/classes/SEM.properties
+		# reboot
+		
+	List all ips in a single address set:
+		# vsipioctl getaddrsets -f <filtername> -a <addrset name>
+		
+	List number of times each rule has been hit
+		# vsipioctl getrules -f <filtername> -s
+		
+	Enable Debug logging for Security Group/policy creation
+		# curl -v -H "Content-Type:application/xml" -k -u admin:VMware1! -X POST https://localhost/api/1.0/services/debug/loglevel/com.vmware.vshield.vsm.si?level=DEBUG		
+		
+		
+
+
+		
+Rest api stuff:		
+	
+	Prevent controllers from being removed after failed deployment:
+		1. Add "controller.removeOnDeploymentFailure=false" in /home/secureall/secureall/sem/WEB-INF/classes/xvs.properties
+		2. /etc/init.d/bluelane-manager restart 
+	
+	simple rest:
+		GET https://NSX-Manager-IP-Address/api/2.0/vdn/controller		
+	
+		looks like:
+			<controllers>
+			VMware, Inc. 31
+			Chapter 2 Installing Components
+			 <controller>
+			 <id>controller-...</id>
+			 <name>controllerA</name>
+			 <description>nvp-controller</description>
+			 <ipAddress>10.1.1.1</ipAddress>
+			 <status>RUNNING</status>
+			 </controller>
+
+	Curl Example
+			curl -v -H "Content-Type:application/xml" -k -u admin -X POST -d "<nwFabricFeatureConfig><featureId>com.vmware.vshield.vsm.messagingInfra</featureId><resourceConfig><resourceId>domain-c101</resourceId></resourceConfig></nwFabricFeatureConfig>" https://nsxmgr-01a.corp.local/api/2.0/nwfabric/configure?action=synchronize | xmllint --format -
+		
+		Simple API querey	
+			curl -v -H "Content-Type:application/xml" -k -u admin -X GET https://nsxmgr-01a.corp.local/api/2.0/vdn/controller | xmllint --format -
+		
+		Curl with DATA file:
+			curl -v -k -X POST -H "Content-Type: application/xml" -d "@PscAndNetXFix.encoded" -u admin https://nsxmgr_ip/api/1.0/services/debug/script
+		
+		If run from root on the manager:		
+			curl -v -H "Content-Type:application/xml" -k -u admin -X GET https://localhost/api/2.0/vdn/controller | xmllint --format -	
+				
+		How to re-sync controllers after redeployment
+			curl -v -H "Content-Type:application/xml" -k -u admin -X PUT https://<NSX-Manager-IP>/api/2.0/vdn/controller/synchronize
+			
+Service Definitions:
+
+	Lists all the service definitions
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/2.0/si/servicemanagers | xmllint --format -
+		
+	lists a single definition	
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/2.0/si/servicemanager/servicemanager-5 | xmllint --format -
+		
+	lists the services under that definition		
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/2.0/si/service/service-11 | xmllint --format -
+		
+	how to remove stale entire:		
+		removal order
+		1. dfw rules
+		2. service profile
+		3. service instance
+		4. services
+		5. service manager
+
+
+				
+EAM Stuff:
+
+	Changing EAM port to 8090 instead of 8089
+			change these lines:
+				vcsa-01a:/etc/vmware-eam # cat eam.properties | grep  8089
+				vc.tunnelSdkUri.template=https://##{VC_HOST_NAME}##:8089/sdk/vimService
+				vc.tunnelSdkUri=https://vcsa-01a.corp.local:8089/sdk/vimService	
+				
+	Exclude EAM from using vum for all agencies
+			go here:
+				5.x /usr/lib/vmware-vpx/tomcat/webapps/eam/WEB-INF/eam.properties
+				6.x /etc/vmware-eam/eam.properties
+			Windows 	
+				5.x C:\Program Files\VMware\Infrastructure\tomcat\webapps\eam\WEB-INF\eam.properties
+				6.x C:\ProgramData\VMware\vCenterServer\cfg\vmware-eam\eam.properties
+			change to:,.
+				vum.integration=false
+				sed -i 's/vum.integration=true/vum.integration=false/g' /etc/vmware-eam/eam.properties
+			restart EAM
+				service vmware-eam stop
+				service vmware-eam start
+				
+	Increase memory for eam service
+		https://kb.vmware.com/s/article/2135378
+		1. stop EAM service
+			# service vmware-eam stop
+		Windows:
+			# cd  C:\Program Files\VMware\vCenter Server\visl-integration\usr\sbin
+			# cloudvm-ram-size -C NewMemorysizeinMB EsxAgentManager
+		Linux:
+			# cloudvm-ram-size -C 512 vmware-eam
+			write the changes
+				# cloudvm-ram-size -J vmware-eam -O /etc/vmware/java/vmware-eam_jvm.conf 
+				# echo $?
+		2. start EAM
+			# service vmware-eam start
+			
+	Alternative more permanent method:
+		1. stop EAM 
+			# service-control --stop vmware-eam
+				increase the heap size the following needs to be appended to the end of '/etc/vmware-eam/wrapper/wrapper.conf':
+					wrapper.java.additional.500=-Xmx<SIZE_IN_MB>m
+					wrapper.java.additional.501=-XX:MaxPermSize=<SIZE_IN_MB>m
+				example 500 hosts and 256 MB for EAM heap size
+					wrapper.java.additional.500=-Xmx256m
+					wrapper.java.additional.501=-XX:MaxPermSize=64m
+		2. start EAM
+			# service-control --start vmware-eam
+			
+	EAM memory defaults:
+		Tiny :
+		 # ps auxww | grep vmware-eam
+		 .....
+		 .......  -Xmx96m -XX:MaxPermSize=64m -XX:ThreadStackSize=256 -XX:ParallelGCThreads=1 ....
+		 .....
+
+		Small : 
+		 # ps auxww | grep vmware-eam
+		 .....
+		 ......./usr/java/packages/lib/ext:/opt/vmware/jre_ext/ -Xmx233m -XX:MaxPermSize=64m -XX:ThreadStackSize=256 -XX:ParallelGCThreads=1 ....
+		 .....
+		 
+		Medium :
+		 # ps aux | grep vmware-eam | grep \\-Xmx[[:digit:]]*m -o
+		 -Xmx371m
+		 
+		 Large : 
+		 sc-rdops-vm01-dhcp-12-144:~ # ps aux | grep vmware-eam | grep \\-Xmx[[:digit:]]*m -o
+		 -Xmx509m
+			
+			
+		
+	Check EAM current heap memory config:
+		from PR 1435777:
+			# ps aux | grep vmware-eam | grep \\-Xmx[[:digit:]]*m -o
+			# ps aux | grep vmware-eam | grep \\-XX:MaxPermSize=[[:digit:]]*m -o
+	
+		# cloudvm-ram-size -J vmware-eam
+			-Xmx96m -XX:MaxPermSize=64m -XX:ThreadStackSize=256 -XX:ParallelGCThreads=4 ------------------------------- the first value
+			
+			
+	How heap is calculated:
+		                 (large - tiny)
+		Heap = tiny +  ------------------- * (cloudvm-size - 8 GB)
+						 (32GB - 8GB)
+							512 - 96
+			 = 96   +  ------------------- * (24 - 8)
+							 32 -  8
+			 = 373 MB.
+			
+			
+	Backup just EAM DB:
+		export table to a file:
+			# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy (select * from vpx_ext_data where ext_id = 'com.vmware.vim.eam') to '/tmp/vpx_ext_data_backup.sql';"
+			
+	Export Data for ENG or grepping:
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy (select * from VPX_EXT_DATA where EXT_ID = 'com.vmware.vim.eam') To '/tmp/ext_data.csv' With CSV;"
+	
+	how to backup:
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy (select * from vpx_ext_data where ext_id = 'com.vmware.vim.eam') to '/tmp/vpx_ext_data_backup.sql';"
+
+	How to restore:
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "delete from vpx_ext_data where ext_id = 'com.vmware.vim.eam';"  
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy vpx_ext_data from '/tmp/vpx_ext_data_backup.sql';"
+			
+	Remove Conetents of EAM DB:
+		select * from VPX_EXT_DATA where ext_id like '%com.vmware.vim.eam%';
+		delete from VPX_EXT_DATA where ext_id like '%com.vmware.vim.eam%';
+	
+
+Power NSX:
+	How to install power NSX.
+		1. verify powercli version:
+			https://blogs.vmware.com/PowerCLI/2017/08/updating-powercli-powershell-gallery.html
+		2. uninistall powercli if version 3 or 4.
+		3. update powershell
+				Install PackageManagement PowerShell Modules: http://go.microsoft.com/fwlink/?LinkID=746217&clcid=0x409
+					a. open folder with powershell
+					b. run install script
+		4. install powercli		
+			Install-Module -Name VMware.PowerCLI –Scope CurrentUser
+		5. use this command to get POWERNSX installed	after powercli works. 
+			Auto install:
+				# $Branch="master";$url="https://raw.githubusercontent.com/vmware/powernsx/$Branch/PowerNSXInstaller.ps1"; try { $wc = new-object Net.WebClient;$scr = try { $wc.DownloadString($url)} catch{ if ( $ _ .exception.innerexception -match "(407)") {$wc.proxy.credentials = Get-Credential -Message "ProxyAuthentication Required"; $wc.DownloadString($url) }else { throw $ _ }}; $scr | iex } catch { throw $ _ }
+		6. connect to NSX MGr
+			# Connect-NsxServer 172.16.1.17	
+			
+PowerCli
+	find any vm by mac:
+		Get-VM | Get-NetworkAdapter | Where-Object {$_.MacAddress -eq "00:0c:29:1d:5c:ec"} | Format-List -Property *
+				
+Escalation Template stuff:
+	Before Esclation is requested this must be filled out and pated in the Premium		
+		**************
+		EE Review:
+		Steps taken / due dilligence:
+		Action for NSBU:
+
+		**************
+
+	fill out the below and send to gs-ts-amer-rem@vmware.com
+		[SR]:  
+		[Customer Name] / [Entitlement]:  
+		[Product Name]:  
+		[Product Version]:  
+		[PR#]:  
+		[Environment Type]:  production or testing?
+		[Brief description of the issue / customer background]:  
+			Technical summary and what components are being disrupted, attempts to get traction, summary of what's been done by GSS, etc.
+		[Business Justification and Impact]:  
+			What the issue means to the business, what is being held up, customer temp, timelines, etc.
+		 [ASK/NEED]
+			What is the specific, immediate need?
+
+
+				
+				
+				
+		 
+Check for duplicate vTeps in NSX Manager logs
+		grep "no hostNetInfo" vsm.log | wc -l	
+		
+Use Sed to grep through all log files during a certain time:
+	# sed -n '/2012-08-20 11:34/,/2012-08-22 16:34/p' <filename>		
+		
+
+Check for rabbit mq
+	esxcli network ip connection list 1234
+	esxcli network ip connection list 5671
+	rabbitmqctl status  | less
+	/blue_lane/bin]# ./rabbitstatus.sh | less	
+		
+		
+VCNS stuff:
+	SSH to firewall appliances VCNS
+			for ip in 192.168.2.4 192.168.2.5 192.168.2.6; do ssh -o PasswordAuthentication=no -o ConnectTimeout=1 root@$ip; done			
+		
+
+			
+collect thread dumps for nsx manager
+	1. get ~5 pids
+		'ps -ef | grep java 
+	2. run tops
+			top -b -H -p <java-pid> -n 5 > /tmp/top-`date +%H-%M-%S`.<PID>.out
+	3. collect thread dumps
+			pkill -QUIT java
+	4. scp file out of manager
+			file: /var/log/nsx-tcserver-wrapper.log			
+		
+
+Test port connectivity from GI VM to manager:
+		curl -v telnet://NSX_MGR:5671
+		
+		
+Find Mux vib for auto deploy
+		find / -name *vShield-Endpoint-Mux*.zip
+		https://nsxmgr-01a.corp.local/bin/epsec/epsec-mux.properties
+		https://nsxmgr-01a.corp.local/bin/vdn/nwfabric.properties
+		
+time how long pings take:
+		bping.exe 172.16.30.11 -u -q
+		http://gizmoware.net/bping/		
+		
+Performance testing with IPerf
+		iperf3.exe -c 10.100.23.59 -t 100 -P 20 -b 0
+		iperf3.exe -s
+
+Check openssl testing tls
+		openssl s_client -connect www.example.com:8443 -tls1
+		openssl s_client -connect www.example.com:8443 -tls1_2
+			
+Detecting Duplicate IP for NSX Manager
+		[root@nsxmgr-01a /blue_lane/bin]# ./DetectDuplicateNSXIP.sh
+		arping -D -I mgmt -c 2 $nsx_mgr_ip
+		https://ikb.vmware.com/s/article/2150466
+		Check messages. in /var/log/messages
+
+
+		
+
+look for for vCenter connection issues.			
+		VcConnect
+		ViInventory				
+
+Login account for downloading stuff
+		 dl_admin@vmware.com 
+		 Password: QmA62VTQ%894			
+	
+Template created for 6.1.4
+		search 6.1.4 on gss repro internal
+		
+Test ports with Net cat nc
+		nc -v -u 172.16.10.50 4789
+		nc -lvk -u 4789
+		curl -v telnet://172.16.10.50:4789
+	
+		
+NSX api logs:
+	/usr/appmgmt-webserver/logs/	
+	
+Enable Debug logging for NSX manager service
+	# curl -v -H "Content-Type:application/xml" -k -u admin -X POST https://localhost/api/1.0/services/debug/loglevel/com.vmware.vshield?level=DEBUG
+	undo:
+	# curl -v -H "Content-Type:application/xml" -k -u admin -X POST https://localhost/api/1.0/services/debug/loglevel/com.vmware.vshield?level=INFO
+	
+
+NSX version in nsx log bundle:
+	/status/system/sys_info
+	
+how to kill all pcaps:
+	kill $(lsof |grep pktcap-uw |awk '{print $1}'| sort -u)	
+	
+	or
+	
+	run 
+	# vsish -e ls /net/pktCap/sessions
+	 If there is any folders this means there are captures running. for example:  
+		2/
+		13/
+		14/
+		15/
+		17/ 
+
+	how to kill captures: 
+	# vsish -e set /net/pktCap/destroySession/ 2  
+		
+		
+how to run commands with loops:
+	grep -i agency EAM18727103802.csv | awk -F ":" '{print $4}' | grep -v EsxAgentManager | sort | uniq > -; while read -r line; do echo "AGENCY: $line"; grep "$line" EAM18727103802.csv | grep "agent\[" | awk -F "[" '{print $2}' | sort -n; done < - 
+	simple version:
+	grep -i "string" filename.txt > -; while read -r line; do echo "your output is: $line"; done < -
+
+	
+	
+How to escalate:
+	Comment on PR with template:
+		**************
+		EE Review:
+
+		Steps taken:
+
+		Action for NSBU:
+		**************
+
+	Send email to: gs-ts-amer-rem@vmware.com
+		[SR]:  
+		[Customer Name] / [Entitlement]:  
+		[Product Name]:  
+		[Product Version]:  
+		[PR#]:  
+		[Environment Type]:  production or testing?
+		[Brief description of the issue / customer background]:  
+			Technical summary and what components are being disrupted, attempts to get traction, summary of what's been done by GSS, etc.
+		[Business Justification and Impact]:  
+			What the issue means to the business, what is being held up, customer temp, timelines, etc.
+		[ASK/NEED]
+			What is the specific, immediate need?
+
+Check drivers firmware drops
+	physical nic info
+		# nicinfo.sh.txt 
+	allocated port for pnic info
+		# debugzilla.py  vsi_traverse_-s.txts
+		
+		
+log into vsish on scripts while in commands folder
+		# debugzilla.py  vsi_traverse_-s.txts
+	
+Download OVA from myvmware
+	# use: dl_admin@vmware.com/FT6MFRwzgK832!QU	
+	
+Forgot password to PC? Help Now
+	https://help.vmware.com/
+	1-888-869-2738 (1-888-VMWARE8)
+	
+linux html browser on scripts
+  # lynx index.html	
+	
+new cool less	
+	# lnav *
+	or 
+	# lnave <file> <file2>
+
+
+	
+	
+
+root passwords for NSX
+	5.0 root:  he8VHx5$
+	5.1 root:  68BOrzjeoN
+	68BOrzjeoN5
+	68BOrzjeoN
+	IAmOnThePhoneWithTechSupport 
+
+	
+Find NSX Manager Version from the logs.
+	./status/system/sys_info 
+	grep -rl "6." ./ 	
+
+
+forgot password?
+
+	vSM 5.1 Postgre SQL
+	1) TAKE A SNAPSHOT!!!!
+	2) Login as root
+	3) enable >> st en
+	4) Psql -U secureall
+	5) select * from domain_object where user_id='admin'; - should come back with password hash
+	6) delete from domain_object where user_id='admin'; 
+	7) select * from key_value_store where context='com.vmware.vshield.vsm.security.service.impl.DefaultUserAddition';
+	8) delete from key_value_store where context='com.vmware.vshield.vsm.security.service.impl.DefaultUserAddition';
+	9) \q to exit PSQL
+	10) Log all the way out of VSM and log back in as admin
+	11) Got to config t and run "web-manager restart" 
+
+Database stuff:
+
+	Dump the contents of the DB to a file:	
+		# pg_dump -U secureall > /tmp/<filename>.db
+
+	copy contents from postgres
+		copy (select name,pem_encoding,private_key from domain_object where objectid like '%certificate-%') to '/tmp/cert_psql.txt'(format csv, delimiter ';');
+		
+	copy contents of DB from cli to text file"
+		psql -U secureall -c "select name,pem_encoding,private_key from domain_object where objectid like '%certificate-%';" > cert_out.txt
+		
+	Restore a customer DB from a DB dump.
+		1. Dump customer DB: 
+			# pg_dump -U secureall > /tmp/nsx-db.sql
+		2. SCP file to the new Manager
+		3. Delete DB scheme:
+			# DROP SCHEMA public CASCADE;
+		4. Create a new schema:
+			# CREATE SCHEMA public;
+		5. Import db into new blank db
+			# \i /tmp/nsx-db.sql
+		6. Reboot NSX Manger after import completes. 
+
+	Check size of tables in DB:
+		SELECT nspname || '.' || relname AS "relation",
+		pg_size_pretty(pg_relation_size(C.oid)) AS "size"
+		FROM pg_class C 
+		LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+		WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+		ORDER BY pg_relation_size(C.oid) DESC
+		LIMIT 20;
+		
+		-------or-------
+		
+		SELECT relname as "Table", pg_size_pretty(pg_total_relation_size(relid)) As "Size", pg_size_pretty(pg_total_relation_size(relid) - pg_relation_size(relid)) as "External Size" FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC; 
+		
+		Clean the tables:			
+			First try vaccum:
+				VACUUM (FULL) job_instance_task_instances;
+				VACUUM (FULL) task_instance_task_data;
+				VACUUM (FULL) task_instance_task_output;
+				VACUUM (FULL) task_instance;
+				VACUUM (FULL) task_task_init_data;
+				VACUUM (FULL) task;
+				VACUUM (FULL) task_policy;
+				VACUUM (FULL) task_target;
+				VACUUM (FULL) job_instance_job_output;
+				VACUUM (FULL) job_instance;
+				VACUUM (FULL) job_data_task_dependency_map;
+				VACUUM (FULL) task_dependency_tasks;
+				VACUUM (FULL) dependent_task;
+				VACUUM (FULL) job_data;
+				VACUUM (FULL) job_schedule;
+				VACUUM (FULL) task_dependency;
+						
+			if fails, then truncate them:
+				TRUNCATE TABLE  job_instance_task_instances, task_instance_task_data,task_instance_task_output,task_instance,task_task_init_data,task ,task_policy ,task_target, job_instance_job_output, job_instance, job_data_task_dependency_map, task_dependency_tasks,dependent_task,job_data,job_schedule,task_dependency,housekeeping_module;
+
+	Remove IP from ip pool
+		delete from ipam_allocated_ip_address where subnet = 'subnet-2'; 	
+		or
+		delete from ipam_allocated_ip_address where objectid = 1620;
+		
+	Shrink the ip pool
+		UPDATE ipam_ip_range SET range_end_display = '10.222.98.15' WHERE ID = 'iprange-11';
+		UPDATE ipam_ip_range SET range_end = '182346255' WHERE ID = 'iprange-11';	
+	
+	DB update for API not working:
+		SELECT is_cli from domain_object WHERE user_id = 'admin'; -------------------------> if N then  do this:
+			UPDATE domain_object SET is_cli='Y' WHERE user_id='admin'; 	
+		
+	Find VTep information from the NSX Manager DB
+		Select h.host_id,d.name,h.status,h.cluster_id,v.allocated_ip_id as ip, c.ip_pool_id, ip.ip_address from xvs_vmknic_info v, xvs_host_info h, vdn_cluster c, ipam_allocated_ip_address ip,domain_object d where v.host_id = h.id and c.cluster_id = h.cluster_id and ip.objectid = v.allocated_ip_id and d.objectid = h.host_id;	
+		
+	Change alarms  and alerts on virtual wire (logical switches)
+		TABLE vdn_virtual_wire;
+		UPDATE vdn_virtual_wire SET status = '0' WHERE status='2';	
+		
+	NSX Manager Tables where hosts are stored:
+		vim_compute_resource_host_ids    			Inventory    Host to cluster mapping
+		vim_distributed_virtual_switch_host_member  Inventory    host to dvS mapping
+		vim_host_system_datastore_ids    			Inventory    datastore to ESXi host mapping
+		vim_host_system_network_ids    				Inventory    Network/PG to ESXi host mapping
+		vim_host_system_nic_info    				Inventory    vmk/IP/PG to host mapping
+		vim_host_system_vm_ids    					Inventory    vm to ESXi host mapping	
+		
+	How to search domain object:
+		select * domain_object where objectid like 'controller%';	
+		
+	Remove SSO coinfig from NSX DB
+		# delete from ssoconfig where lookup_service_certificate_store_id = 'certificate-15';
+		# delete from domain_object where objectid = 'certificate-15';
+		
+		
+		
+		
+Controller stuff:
+				
+	get into root for edges.
+		First get to root in manager then go here and run this:
+			/home/secureall/secureall/sem/WEB-INF/classes> ./GetSpockEdgePassword.sh
+			Then on edge go do this	
+				edge-2489> st e
+				
+	get root for controllers
+		First get to root in manager then go here and run this:
+			/home/secureall/secureall/sem/WEB-INF/classes/GetNvpApiPassword.sh controller-1
+			login to controller
+				: debug os-shell	
+	
+		Central CLI
+			show control-cluster logical-routers instance all
+		
+		finds connections for hosts
+			show control-cluster logical-routers connections 0x30d40 
+		
+		check arp tables on controllers:
+			show control-cluster logical-switches arp-table 5002
+		
+		find vteps associated with VNIs. 
+			show control-cluster logical-switches connection-table 5002
+			
+	Make NOOP Change
+		Log into Controller as root
+			cd /sys/block/sda/queue/
+			echo noop > scheduler
+			
+			
+	Pull logs from CLI for controllers:
+		save status-report controller-id
+		copy <filename> user@scphost:/path/to/upload
+		
+	re-sync controllers via api
+		# curl -v -H "Content-Type:application/xml" -k -u admin -X PUT https://localhost/api/2.0/vdn/controller/synchronize
+		
+		
+	Fix Stuck Controller Deployment/upgrade	
+		Possible status for failed upgrades
+		1. NOT_STARTED
+		2. DOWNLOADING_UPGRADE_FILE -> Controller node downloading the nub file
+		3. DOWNLOAD_COMPLETE -> Controller node downloaded the file completely
+		4. UPGRADING -> controller node upgrade API invoked
+		5. REBOOTING -> Controller node rebooting after upgrade
+		6. REBOOTED -> Controller node rebooted
+		7. FAILED -> upgrade failed (Controller still running old build or did not come up after reboot)
+		8. UPGRADED -> upgrade finished	
+		
+		secureall=# table vnvp_controller;
+			-[ RECORD 1 ]----+-------------------------------------------------------------------------------------------------
+			objectid | controller-4
+			status | DEPLOYED
+			creator_vsm_id | 420F7982-F412-5979-A8BA-4F19D4FF4D1B
+			public_key | 4C:CB:2C:85:E0:9F:85:9F:A2:17:15:82:7E:AF:C9:73:06:DA:22:AA
+			api_thumbprint | 97:25:06:A7:85:37:EE:20:FF:5F:2A:53:15:46:43:D0:C4:EF:8C:64
+			api_user | admin
+			api_password | c8178d674b85a5f11af81573f2e36b2cd452246d27d678e8dd0c06f3e8282b160c91b91a645aa6a37f9ff55b6ca98203
+			root_password | 8433f4a07a93cc2b9b65958da59a3b5bfe36eb08950431eb4dd4201d05aaaade589fd8ce421d482d03e2fde2c0c7b8fa
+			vm_uuid | vm-88030
+			ip_pool_id | ipaddresspool-1
+			version_number | 47844
+			upgrade_status | UPGRADING    <------------------------------------------------------------------------ change this status
+			unique_id | 4
+			vm_status | POWERED_ON
+			vm_instance_uuid | 5009a90a-5003-21d1-8c09-72d5036f79c0	
+		
+			Update DB
+				# update vnvp_controller set upgrade_status = 'FAILED' where objectid = 'controller-9'; 
+			
+			Remove controllers: 
+				# select * from vnvp_controller where objectid = 'controller-9';
+				# delete from vnvp_controller where objectid = 'controller-9';
+				# select * from domain_object where objectid = 'controller-9';
+				# delete from domain_object where objectid = 'controller-9';
+		
+	List arp table for esx mgmt
+		# esxcfg-route -n 
+			or 
+		# esxcli network ip neighbor list
+		
+	List arp table for vteps
+		# esxcli network ip neighbor list -N vxlan
+		
+	Tests for multi cast:
+		Get vxlan vmks:
+			# esxcli network ip interface ipv4 get -N vxlan
+		Get multi cast group info for effected VNI	
+			# net-vdl2 -l | grep -A5 <vni>
+		Ping multicast group ip			
+			# vmkping ++netstack=vxlan -I vmk<vmk#> <multicast ip address>
+			Failed Example:
+				PING 225.1.4.184 (225.1.4.184): 56 data bytes
+				64 bytes from 10.20.32.150: icmp_seq=0 ttl=64 time=0.070 ms
+				64 bytes from 10.20.32.150: icmp_seq=1 ttl=64 time=0.060 ms
+				64 bytes from 10.20.32.150: icmp_seq=2 ttl=64 time=0.115 ms
+			Good Example:
+				PING 225.1.4.184 (225.1.4.184): 56 data bytes
+				64 bytes from 10.20.32.150: icmp_seq=0 ttl=64 time=0.068 ms
+				64 bytes from 10.20.32.24: icmp_seq=0 ttl=64 time=0.291 ms (DUP!)
+				64 bytes from 10.20.32.37: icmp_seq=0 ttl=64 time=0.381 ms (DUP!)
+				64 bytes from 10.20.32.150: icmp_seq=1 ttl=64 time=0.466 ms
+				64 bytes from 10.20.32.37: icmp_seq=1 ttl=64 time=0.520 ms (DUP!)
+				64 bytes from 10.20.32.24: icmp_seq=1 ttl=64 time=0.531 ms (DUP!)
+				64 bytes from 10.20.32.150: icmp_seq=2 ttl=64 time=0.067 ms
+				64 bytes from 10.20.32.37: icmp_seq=2 ttl=64 time=0.260 ms (DUP!)
+				64 bytes from 10.20.32.24: icmp_seq=2 ttl=64 time=0.357 ms (DUP!)
+			
+
+Endpoint GI stuff: 
+
+	vSheild test endpoint scanning eicar test file
+		X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*
+		
+	vsheild driver unload while running
+		# fltmc unload vsepflt
+		# fltmc load vsepflt
+		or for windows 10
+			# sc query vnetwfp	
+	Check the linux Agent:
+		service vsepd status	
+	
+	Check the status of the vnetflt
+		# driverquery
+		
+	Check Rabbit MQ status:
+		# rabbitmqctl list_connections	
+		
+		
+	Collect UVSM Logs
+		# curl -k -u admin -L -X GET https://localhost/api/1.0/hosts/host-34/techsupportlogs > ./techsupportlogs.log.gz 
+		or
+		# curl -v -H "Content-Type:application/xml" -k -u admin -X GET  https://localhost/api/1.0/hosts/host-34/techsupportlogs > ./techsupportlogs.log.gz 
+		# scp ./techsupportlogs.log.gz root@esxcomp-02a.corp.local:/vmfs/volumes/b2476f72-4b94792e/UVSM_Logs/
+	
+	Collect Journal logs (run on GI USVM cli)		
+		# journalctl > journal.log
+	
+	
+    Enabled ssh daemon for GI VM:
+		# service sshd start
+	 
+	Allow files to be sent out of GI VM (6.3.x or higher) enabling SSH
+		# https://bugzilla.eng.vmware.com/show_bug.cgi?id=2194374
+		
+	 
+	Allow files to be sent out of GI VM	 (prior to 6.3.x)
+		 Disable firewall:
+			# iptables --policy INPUT ACCEPT
+			or
+			# service iptables stop
+		Files to scp out:
+			/usr/local/usvmmgmt/log/eventmanager*
+			/var/log/usvm*
+			/var/log/messages*			
+	Allow files to be sent (6.3.x)
+		start ssh
+			# service sshd start
+		disable firewall
+			# service iptables stop
+			
+	Enabled Debug for epseclib	 
+		 # echo ENABLE_DEBUG=TRUE > /etc/epseclib.conf; echo ENABLE_SUPPORT=TRUE >> /etc/epseclib.conf
+		should look like this:
+			# cat /etc/epseclib.conf
+				ENABLE_DEBUG=TRUE
+				ENABLE_SUPPORT=TRUE	 
+	Set Mcafee to debug level
+		# sudo /opt/McAfee/move/bin/chloglevel DEBUG DEBUG DEBUG
+	Start the syslog service on McAfee
+		# sudo bash
+		# sed -i '/^\*/s/\*/\#\*/g' /etc/rsyslog.d/25-discard.conf; service rsyslog restart
+	gather sylogs:
+		/var/log/syslog 		
+				
+		 
+	Enabled Debug logging for the USVM
+		# curl -v -H "Content-Type:application/xml" -k -u admin -X POST -d "<logginglevel><loggerName>com.vmware.vshield.usvm</loggerName><level>DEBUG</level></logginglevel>" https://localhost/api/1.0/usvmlogging/host-446535/changelevel
+			
+	Enable Debug for Mux
+		# echo ENABLE_SUPPORT=TRUE > /etc/muxconfig.conf; echo ENABLE_DEBUG=TRUE >> /etc/muxconfig.conf
+		should look like this:
+			# cat /etc/muxconfig.conf
+				ENABLE_SUPPORT=TRUE
+				ENABLE_DEBUG=TRUE
+		Increases syslog log sizes from 1024 to 102400 so logs don't roll
+			Host -> manage -> settings -> advanced system settings -> syslog.loggers.syslog.size
+
+	Collect logs from VM with issues 
+		suspend vm and copy the ".vmem" and ".vmss" files from that datastore to /vmfs/volumes/58d1abff-0548ddea-c420-0025b500002b/GI_Debug_Logs
+			How to find VM location:
+				# find /vmfs/volumes -name *.vmx | grep -i <vmname goes here>
+				# cd <Location of vmxfile>
+				# cp *.vmem *.vmss  /vmfs/volumes/58d1abff-0548ddea-c420-0025b500002b/GI_Debug_Logs
+				
+	Collect core from mux (run on the esxi host) files are put into /var/core
+		# ps -c| grep mux
+		# vsish -e set /userworld/cartel/<WID of mux>/debug/livecore 1	
+
+	How do disable Network Events manually on one GI VM (or remove vnetflt)
+		1. log into manager as root and get root passwords for GI VMs
+				#  /home/secureall/secureall/sem/WEB-INF/classes/GetEpsecAppliancePassword.sh
+		2. open console to one GI vm, log in as "root", and enable SSH
+				#  service sshd start
+		3. edit the config file on the GI VM and then restart the service   
+				#  sed -i 's/handle.network.enabled=true/handle.network.enabled=false/g' /usr/local/usvmmgmt/config/em.properties
+				#  rcusvm restart              
+		4. verify change was made
+				#  grep handle.network.enabled /usr/local/usvmmgmt/config/em.properties
+					 Should return the following if change was successful: handle.network.enabled=false
+		how to undo
+			# sed -i 's/handle.network.enabled=false/handle.network.enabled=true/g' /usr/local/usvmmgmt/config/em.properties
+			
+	How to enable debugview logging (vsepflt):
+		- download debug view utility: https://docs.microsoft.com/en-us/sysinternals/downloads/debugview
+		- edit registry so logging from vsep is logged to the debugview console.
+			# regedit ->  HKLM\System\CurrentControlSet\Services\vsepflt\
+				Create a key called "Parameters" if not already created
+				# new DWORD: log_dest         Value: 0x1
+				# new DWORD: log_level        Value: 0x10
+		- unload and reload the vsep driver so the registry changes take effect.
+			# fltmc unload vsepflt
+			# fltmc load vsepflt
+		- start debugview utility    
+			# Click Capture -> Capture Kernel
+			# Click Capture -> Enable Verbose Kernel output	
+			
+			
+	Remove vnetflt driver with auto vmware tools install script:
+		/s /v"/qn ADDLOCAL=All REMOVE=NetworkIntrospection"
+	
+	Remove GI from the DB:
+		https://bugzilla.eng.vmware.com/show_bug.cgi?id=1646049#c2
+		
+		secureall=# table deployment_unit;
+		 service_id | service_instance_id |              agency_id               | fabric_status | health_status | fabric_operation_status |     objectid     | installed_service_version
+		------------+---------------------+--------------------------------------+---------------+---------------+-------------------------+------------------+---------------------------
+		 service-4  |                     | f9236d4d-fa0f-482e-a3be-e6518dbc74dc | ENABLED       | SUCCEEDED     |                         | deploymentunit-1 | 6.2.0
+		 service-4  |                     | 10128a07-5a4a-4736-9ec2-bf06da48e4ad | ENABLED       | SUCCEEDED     |                         | deploymentunit-7 | 6.2.0
+		 service-6  |                     |                                      |               | SUCCEEDED     | CREATED                 | deploymentunit-3 | 6.2.0
+		 service-4  |                     | 1c48ff64-fd9c-40f8-9519-beeb5992a615 | ENABLED       | SUCCEEDED     |                         | deploymentunit-4 | 6.2.0
+		 service-4  |                     |                                      |               | SUCCEEDED     | CREATED                 | deploymentunit-2 | 6.2.0
+		 
+		 secureall=# select * from domain_object where objectid='deploymentunit-3';
+		-[ RECORD 1 ]--------------------+------------------------
+		dtype                            | DeploymentUnit
+		objectid                         | deploymentunit-3
+		cascade_event_to_parent          | t
+		cascade_parent_delete            | f
+		description                      |
+		name                             | domain-c55856_service-6
+		objecttype                       | DeploymentUnit
+		path                             | /deploymentunit-3
+
+		delete from deployment_unit where service_id='service-6';
+		delete from domain_object where objectid = 'deploymentunit-3';
+		
+	
+	Read information for a VM for namespacedb
+		# touch dp_namespace.sh
+		# vi dp_namespace.sh
+		- copy paste below:
+			import pyVmomi
+			import sys
+			from pyVmomi import vim
+			from pyVim.connect import SmartConnect, Disconnect
+			from pyVim import folder
+			si = SmartConnect()
+			search_index = si.content.searchIndex
+			nsmgr = si.RetrieveInternalContent().vmNamespaceManager
+			NAMESPACE = "guest_introspection"
+
+			# find the VM
+			vm = folder.Find(sys.argv[1])
+			# vm = search_index.FindByUuid(None, '<VM-UUID>', True, False) # replace <VM-UUID> with the VM's BIOS UUID
+			# If you want to use the VM's vCenter Instance UUID, change last argument to True
+			if vm is None:
+				print("No such VM found")
+				sys.exit()
+
+			# check if guest_introspection namespace is present
+			if NAMESPACE not in nsmgr.ListNamespaces(vm):
+				print("No such namespace found")
+				sys.exit()
+
+			# read value from the namespace
+			try:
+				datalist = nsmgr.RetrieveData(vm, NAMESPACE).dataInfo
+				value = datalist[0].value
+			except:
+				print("Unable to read value")
+				sys.exit()
+			print("Value:", value)
+		# chmod 777 dp_namespace.sh	
+		# python dp_namespace.sh <vmname>
+
+		OUTPUT:
+			[root@esx-01a:/var/run]  python dp_namespace.sh Win10-View-01a
+			No such namespace found
+			[root@esx-01a:/var/run] python dp_namespace.sh Win10-Internal-01a
+			Value: /vmfs/volumes/5af32fae-1bbfa1c1-05f3-00505601dfda/Win10-Internal-01a_1/Win10-Internal-01a.vmx,vm-223,7498352642083520512|1|43009999
+			[root@esx-01a:/var/run] cat dp_namespace.sh
+
+
+DLR Stuff: 
+
+	esxcli network vswitch dvs vmware vxlan network arp list --vds-name="dvSwitch: CAR Premium" --vxlan-id=5001 
+	net-vdr -l -C
+	net-vdr -l -I
+	net-vdr -l --route default+edge-1
+	net-vdr -l --nbr default+edge-1
+	net-vdr -R -l default+edge-2 both host sides
+	net-vdr -L -l -n 138800000002<Interface ID from the NBR> default+edge-1
+	net-vdr --cplane --syncState default+edge-40da689f-3848-406e-a71a-2c0ef350503b
+	net-vdr --cplane --stats default+edge-40da689f-3848-406e-a71a-2c0ef350503b
+	
+	
+	Check if the teaming policy is wrong!
+	 # net-vdl2 -S -s <vmname> -n <VNI>
+	
+		[root@esxgw-lab22ch-2:/var/log] net-vdl2 -S -s fabric-1-edge -n 18007
+			tx.total: 0
+			tx.nonUnicast: 0
+			tx.crossRouter: 0
+			tx.drop.total: 0
+			rx.total: 0
+			rx.mcastEncap: 0
+			rx.crossRouter: 0
+			rx.drop.wrongDest: 16174 <-------------------------- look for this value
+
+	
+	change netcpa logging (persistant)
+		# vi /etc/vmware/netcpa/netcpa.xml
+		Change:
+			<log>
+			   <directory>/var/log/vmware/</directory>
+			   <name>netcpa</name>
+			   <outputToConsole>false</outputToConsole>
+			   <outputToFiles>false</outputToFiles>
+			   <!-- log level is one of the 2 user configurable setting -->
+			   <!-- configurable levels : panic, error, warning, info, verbose, trivia -->
+			   <!-- log levels are listed in increasing amount of logging done -->
+			   <!-- use trivia to get most detailed logging for providing logs to VMware Support -->
+			   <maxFileSize>524288</maxFileSize>
+			   <maxFileNum>8</maxFileNum>
+				<level>warning</level>		
+		# /etc/init.d/netcpad restart
+		Check the status
+		# /usr/lib/vmware/netcpa-cli/netcpaCli get loglevel
+		
+	
+	net-vdr -L -l default+edge-74805a1c-06d0-480b-9c00-663267b084b1 <<<<<< lists the lifs
+	
+	net-vdr --route -a -i 0.0.0.0 -M 0.0.0.0 -g 10.192.254.105 default+edge-9
+	get lifts:
+		net-vdr -lL  default+edge-b8cb429b-c003-4f86-9d79-223095d5d078
+		
+	central CLI
+		show logical-router host host-31 dlr all verbose
+		show logical-router host host-31 dlr all brief
+		show logical-router host host-31 dlr default+edge-6 route
+		
+	get vdr instance port number:
+		esxcli network vswitch dvs vmware vxlan network port list --vds-name=Compute_VDS --vxlan-id=5003
+	
+    show routes on controllers:
+		show control-cluster logical-routers instance all
+		show control-cluster logical-routers routes 0xdbba0
+		
+	central CLI:
+		show logical-router controller master dlr default+edge-3 brief 
+		show logical-router controller master dlr default+edge-3 route	
+
+	force remove DLR control VM. 	
+			DELETE https://<NSX_MANAGER_IP>/api/4.0/edges/<edge-id>/appliances/<ha-index>
+	
+	Troubleshoot DLR HA config:
+		show service highavailability link
+		Ping between links, it will look like 169.354.1.5 etc.	
+	
+	Running out of Macs on VNI:
+		1. get dvs name 
+			# esxcfg-vswitch -l
+		2. get VNI number 
+			# net-vdl2 -l
+		3. List number of times VNI was full
+			# net-vdl2 -S -s DVS-D4X -n 5029
+		4. list all macs:
+			# net-vdl2 -M mac -s DVS-D4X -n 5029
+		5. reset all macs
+			# net-vdl2 -M mac --reset -s DVS-D4X -n 5029
+			
+			
+			
+			
+Performance stuff:
+	collecting net-stats for engineering
+		# net-stats -A -t WwQqi -i 5 > netstats.txt
+			
+	disable IPFIX
+	# net-dvs -u com.vmware.etherswitch.port.ipfix -p <DVportID> <DVS-name>
+		shrink IPFIX:
+			# localcli system module parameters set -p "ipfixHashTableSize=16384" -m ipfix    <== 16k
+			# localcli system module parameters set -p "ipfixHashTableSize=32768" -m ipfix    <== 32k	
+
+
+Edge stuff:
+
+	IPSEC 
+		Look for this:
+		2016-03-17T11:54:20+00:00 vse-4c4901fe-b252-486a-b1d8-0daf52349708-0 ipsec[2090]: [6bef3041-7054-43c8-ab73-a376c3d8b6dd]:  [authpriv.warning] "216.201.117.242_192.168.200.0/24-68.180.76.51_137.170.236.0/24/1x1" #564: transition from stat
+		e STATE_MAIN_R0 to state STATE_MAIN_R1
+		
+	Find start of Edge logs:
+		-----------------------------------------------------------------------
+		vShield Edge Logs:	
+	
+	load Balancer:
+		application rules for server/client session timeoutes (not session closes to the VIP)
+			no option http-server-close
+
+	Find when a edge lost bgp neighbor and more edge info.
+		grep -hE "eventCode (BGP_NEIGHBOUR_UP|BGP_NEIGHBOUR_DOWN)" logs/management_service/vsm.log* | sed -r 's#^([[0-9-]+) ([0-9:]+)\.[0-9]+ BST.*eventCode (BGP_NEIGHBOUR_UP|BGP_NEIGHBOUR_DOWN).*edgeId=(edge-[^,]+), bgp_neighbor_ip_address=([0-9.]+),.*, hostId=(host-[0-9]+),.*$#\1T\2+01:00: \4 (ESXi \6) -> \3 to \5#' | sort
+
+	Prevent Edge from being removed if deployment fails 
+		Set "deleteEdgeVmOnFailure=false" and restart NSX Manager, to retain the Edge VM for debugging on deployment failure.
+		file = /home/secureall/secureall/sem/WEB-INF/classes/edge.properties 
+		
+		
+		
+dfw firewall stuff:
+
+	Enable Debug logging:
+		vsipioctl setverbose -c DP -v 7
+		vsipioctl setverbose -c DP -v 3 
+		
+	Query a single section:
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/4.0/firewall/globalroot-0/config/layer3sections?name='dvs.VCD_1234_Wholeyj_Telephonica'
+
+	rules live
+		summarize-dvfilter |grep -w "vNic slot 2" -C 2
+		
+		vsipioctl getflows -f nic-627569-eth0-vmware-sfw.2 -t 1
+		create rules
+			# vsipioctl setfilterflags -f <filtername> -G
+		remove all rules
+			# vsipioctl getrules -f <filter-name> 
+				to get the ruleset of the firewall. There should be two rulesets, such as domain-c7 and domain-c7_L2. The first ruleset like domain-c7 is the one you need to remove.
+			# vsipioctl vsipfwcli -f <filter-name> -c "create ruleset <ruleset-name>;" to clear the ruleset.
+		look at xml files:
+			# xmllint --format firewall-configuration-12162016.xml  | less
+			
+		Possibly remove all filters:
+			vsipioctl clearallfilters 		
+	
+	Check heaps:
+		# for n in $(vsish -e ls /system/heaps|grep vsip); do echo $n; vsish -e get /system/heaps/$n'stats'| grep -e "Name\|percent free of max\|failed\|current heap size\|maximum heap size"; done
+		# for vh in `vsish -e ls /system/heaps | grep vsip`;do amax=`vsish -e cat /system/heaps/${vh}stats | grep "maximum bytes available" | awk '{FS=":"}{print $2;}'`;smax=`vsish -e cat /system/heaps/${vh}stats | grep "maximum heap size" | awk '{FS=":"}{print $2;}'`;free=`vsish -e cat /system/heaps/${vh}stats | grep "percent free of current size" | awk '{FS=":"}{print $2;}'`;echo -e "Heap "$vh\\n " Max Available:    " $amax\\n " Max Size:         " $smax\\n " % Free Currently: " $free\\n;done
+	Explination of heaps:
+		 - Heap 1 – Filters 512MB
+		 - Heap 2 – Rules and Containers 1,535MB
+		 - Heap 3 – Connections 1,535MB
+		 - Heap 4 – Discovered IPs 383MB
+		 - Heap 5 – Drop Flows 256MB
+		 
+	Check memory usage for DFW:
+		vsipioctl getmeminfo
+		 
+	
+	Increasing HEAP size:
+		Increase just heap value
+			# esxcli system module parameters set -p DVFILTER_HEAP_MAX_SIZE=276834000 -m dvfilter
+		Increase amount of filters, also will increase heap value.	
+			# esxcli system module parameters set -a -p dvfiltersMaxFilters=16384 -m dvfilter
+		
+	Disable IPV6 for NSX Manager DFW	
+		# echo firewall.collectipv4only=true >> /home/secureall/secureall/sem/WEB-INF/classes/SEM.properties
+		# reboot
+		
+	List all ips in a single address set:
+		# vsipioctl getaddrsets -f <filtername> -a <addrset name>
+		
+	List number of times each rule has been hit
+		# vsipioctl getrules -f <filtername> -s
+		
+	Enable Debug logging for Security Group/policy creation
+		# curl -v -H "Content-Type:application/xml" -k -u admin:VMware1! -X POST https://localhost/api/1.0/services/debug/loglevel/com.vmware.vshield.vsm.si?level=DEBUG		
+		
+		
+
+
+		
+Rest api stuff:		
+	
+	Prevent controllers from being removed after failed deployment:
+		1. Add "controller.removeOnDeploymentFailure=false" in /home/secureall/secureall/sem/WEB-INF/classes/xvs.properties
+		2. /etc/init.d/bluelane-manager restart 
+	
+	simple rest:
+		GET https://NSX-Manager-IP-Address/api/2.0/vdn/controller		
+	
+		looks like:
+			<controllers>
+			VMware, Inc. 31
+			Chapter 2 Installing Components
+			 <controller>
+			 <id>controller-...</id>
+			 <name>controllerA</name>
+			 <description>nvp-controller</description>
+			 <ipAddress>10.1.1.1</ipAddress>
+			 <status>RUNNING</status>
+			 </controller>
+
+	Curl Example
+			curl -v -H "Content-Type:application/xml" -k -u admin -X POST -d "<nwFabricFeatureConfig><featureId>com.vmware.vshield.vsm.messagingInfra</featureId><resourceConfig><resourceId>domain-c101</resourceId></resourceConfig></nwFabricFeatureConfig>" https://nsxmgr-01a.corp.local/api/2.0/nwfabric/configure?action=synchronize | xmllint --format -
+		
+		Simple API querey	
+			curl -v -H "Content-Type:application/xml" -k -u admin -X GET https://nsxmgr-01a.corp.local/api/2.0/vdn/controller | xmllint --format -
+		
+		Curl with DATA file:
+			curl -v -k -X POST -H "Content-Type: application/xml" -d "@PscAndNetXFix.encoded" -u admin https://nsxmgr_ip/api/1.0/services/debug/script
+		
+		If run from root on the manager:		
+			curl -v -H "Content-Type:application/xml" -k -u admin -X GET https://localhost/api/2.0/vdn/controller | xmllint --format -	
+				
+		How to re-sync controllers after redeployment
+			curl -v -H "Content-Type:application/xml" -k -u admin -X PUT https://<NSX-Manager-IP>/api/2.0/vdn/controller/synchronize
+			
+Service Definitions:
+
+	Lists all the service definitions
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/2.0/si/servicemanagers | xmllint --format -
+		
+	lists a single definition	
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/2.0/si/servicemanager/servicemanager-5 | xmllint --format -
+		
+	lists the services under that definition		
+		curl -v -H "Content-Type:application/xml" -k -u admin:VMware123! -X GET https://localhost/api/2.0/si/service/service-11 | xmllint --format -
+		
+	how to remove stale entire:		
+		removal order
+		1. dfw rules
+		2. service profile
+		3. service instance
+		4. services
+		5. service manager
+
+
+				
+EAM Stuff:
+
+	Changing EAM port to 8090 instead of 8089
+			change these lines:
+				vcsa-01a:/etc/vmware-eam # cat eam.properties | grep  8089
+				vc.tunnelSdkUri.template=https://##{VC_HOST_NAME}##:8089/sdk/vimService
+				vc.tunnelSdkUri=https://vcsa-01a.corp.local:8089/sdk/vimService	
+				
+	Exclude EAM from using vum for all agencies
+			go here:
+				5.x /usr/lib/vmware-vpx/tomcat/webapps/eam/WEB-INF/eam.properties
+				6.x /etc/vmware-eam/eam.properties
+			Windows 	
+				5.x C:\Program Files\VMware\Infrastructure\tomcat\webapps\eam\WEB-INF\eam.properties
+				6.x C:\ProgramData\VMware\vCenterServer\cfg\vmware-eam\eam.properties
+			change to:,.
+				vum.integration=false
+				sed -i 's/vum.integration=true/vum.integration=false/g' /etc/vmware-eam/eam.properties
+			restart EAM
+				service vmware-eam stop
+				service vmware-eam start
+				
+	Increase memory for eam service
+		https://kb.vmware.com/s/article/2135378
+		1. stop EAM service
+			# service vmware-eam stop
+		Windows:
+			# cd  C:\Program Files\VMware\vCenter Server\visl-integration\usr\sbin
+			# cloudvm-ram-size -C NewMemorysizeinMB EsxAgentManager
+		Linux:
+			# cloudvm-ram-size -C 512 vmware-eam
+			write the changes
+				# cloudvm-ram-size -J vmware-eam -O /etc/vmware/java/vmware-eam_jvm.conf 
+				# echo $?
+		2. start EAM
+			# service vmware-eam start
+			
+	Alternative more permanent method:
+		1. stop EAM 
+			# service-control --stop vmware-eam
+				increase the heap size the following needs to be appended to the end of '/etc/vmware-eam/wrapper/wrapper.conf':
+					wrapper.java.additional.500=-Xmx<SIZE_IN_MB>m
+					wrapper.java.additional.501=-XX:MaxPermSize=<SIZE_IN_MB>m
+				example 500 hosts and 256 MB for EAM heap size
+					wrapper.java.additional.500=-Xmx256m
+					wrapper.java.additional.501=-XX:MaxPermSize=64m
+		2. start EAM
+			# service-control --start vmware-eam
+			
+	EAM memory defaults:
+		Tiny :
+		 # ps auxww | grep vmware-eam
+		 .....
+		 .......  -Xmx96m -XX:MaxPermSize=64m -XX:ThreadStackSize=256 -XX:ParallelGCThreads=1 ....
+		 .....
+
+		Small : 
+		 # ps auxww | grep vmware-eam
+		 .....
+		 ......./usr/java/packages/lib/ext:/opt/vmware/jre_ext/ -Xmx233m -XX:MaxPermSize=64m -XX:ThreadStackSize=256 -XX:ParallelGCThreads=1 ....
+		 .....
+		 
+		Medium :
+		 # ps aux | grep vmware-eam | grep \\-Xmx[[:digit:]]*m -o
+		 -Xmx371m
+		 
+		 Large : 
+		 sc-rdops-vm01-dhcp-12-144:~ # ps aux | grep vmware-eam | grep \\-Xmx[[:digit:]]*m -o
+		 -Xmx509m
+			
+			
+		
+	Check EAM current heap memory config:
+		from PR 1435777:
+			# ps aux | grep vmware-eam | grep \\-Xmx[[:digit:]]*m -o
+			# ps aux | grep vmware-eam | grep \\-XX:MaxPermSize=[[:digit:]]*m -o
+	
+		# cloudvm-ram-size -J vmware-eam
+			-Xmx96m -XX:MaxPermSize=64m -XX:ThreadStackSize=256 -XX:ParallelGCThreads=4 ------------------------------- the first value
+			
+			
+	How heap is calculated:
+		                 (large - tiny)
+		Heap = tiny +  ------------------- * (cloudvm-size - 8 GB)
+						 (32GB - 8GB)
+							512 - 96
+			 = 96   +  ------------------- * (24 - 8)
+							 32 -  8
+			 = 373 MB.
+			
+			
+	Backup just EAM DB:
+		export table to a file:
+			# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy (select * from vpx_ext_data where ext_id = 'com.vmware.vim.eam') to '/tmp/vpx_ext_data_backup.sql';"
+			
+	Export Data for ENG or grepping:
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy (select * from VPX_EXT_DATA where EXT_ID = 'com.vmware.vim.eam') To '/tmp/ext_data.csv' With CSV;"
+	
+	how to backup:
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy (select * from vpx_ext_data where ext_id = 'com.vmware.vim.eam') to '/tmp/vpx_ext_data_backup.sql';"
+
+	How to restore:
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "delete from vpx_ext_data where ext_id = 'com.vmware.vim.eam';"  
+		# /opt/vmware/vpostgres/current/bin/psql -d VCDB -U postgres -c "copy vpx_ext_data from '/tmp/vpx_ext_data_backup.sql';"
+			
+	Remove Conetents of EAM DB:
+		select * from VPX_EXT_DATA where ext_id like '%com.vmware.vim.eam%';
+		delete from VPX_EXT_DATA where ext_id like '%com.vmware.vim.eam%';
+	
+
+Power NSX:
+	How to install power NSX.
+		1. verify powercli version:
+			https://blogs.vmware.com/PowerCLI/2017/08/updating-powercli-powershell-gallery.html
+		2. uninistall powercli if version 3 or 4.
+		3. update powershell
+				Install PackageManagement PowerShell Modules: http://go.microsoft.com/fwlink/?LinkID=746217&clcid=0x409
+					a. open folder with powershell
+					b. run install script
+		4. install powercli		
+			Install-Module -Name VMware.PowerCLI –Scope CurrentUser
+		5. use this command to get POWERNSX installed	after powercli works. 
+			Auto install:
+				# $Branch="master";$url="https://raw.githubusercontent.com/vmware/powernsx/$Branch/PowerNSXInstaller.ps1"; try { $wc = new-object Net.WebClient;$scr = try { $wc.DownloadString($url)} catch{ if ( $ _ .exception.innerexception -match "(407)") {$wc.proxy.credentials = Get-Credential -Message "ProxyAuthentication Required"; $wc.DownloadString($url) }else { throw $ _ }}; $scr | iex } catch { throw $ _ }
+		6. connect to NSX MGr
+			# Connect-NsxServer 172.16.1.17	
+			
+PowerCli
+	find any vm by mac:
+		Get-VM | Get-NetworkAdapter | Where-Object {$_.MacAddress -eq "00:0c:29:1d:5c:ec"} | Format-List -Property *
+				
+Escalation Template stuff:
+	Before Esclation is requested this must be filled out and pated in the Premium		
+		**************
+		EE Review:
+		Steps taken / due dilligence:
+		Action for NSBU:
+
+		**************
+
+	fill out the below and send to gs-ts-amer-rem@vmware.com
+		[SR]:  
+		[Customer Name] / [Entitlement]:  
+		[Product Name]:  
+		[Product Version]:  
+		[PR#]:  
+		[Environment Type]:  production or testing?
+		[Brief description of the issue / customer background]:  
+			Technical summary and what components are being disrupted, attempts to get traction, summary of what's been done by GSS, etc.
+		[Business Justification and Impact]:  
+			What the issue means to the business, what is being held up, customer temp, timelines, etc.
+		 [ASK/NEED]
+			What is the specific, immediate need?
+
+
+				
+				
+				
+		 
+Check for duplicate vTeps in NSX Manager logs
+		grep "no hostNetInfo" vsm.log | wc -l	
+		
+Use Sed to grep through all log files during a certain time:
+	# sed -n '/2012-08-20 11:34/,/2012-08-22 16:34/p' <filename>		
+		
+
+Check for rabbit mq
+	esxcli network ip connection list 1234
+	esxcli network ip connection list 5671
+	rabbitmqctl status  | less
+	/blue_lane/bin]# ./rabbitstatus.sh | less	
+		
+		
+VCNS stuff:
+	SSH to firewall appliances VCNS
+			for ip in 192.168.2.4 192.168.2.5 192.168.2.6; do ssh -o PasswordAuthentication=no -o ConnectTimeout=1 root@$ip; done			
+		
+
+			
+collect thread dumps for nsx manager
+	1. get ~5 pids
+		'ps -ef | grep java 
+	2. run tops
+			top -b -H -p <java-pid> -n 5 > /tmp/top-`date +%H-%M-%S`.<PID>.out
+	3. collect thread dumps
+			pkill -QUIT java
+	4. scp file out of manager
+			file: /var/log/nsx-tcserver-wrapper.log			
+		
+
+Test port connectivity from GI VM to manager:
+		curl -v telnet://NSX_MGR:5671
+		
+		
+Find Mux vib for auto deploy
+		find / -name *vShield-Endpoint-Mux*.zip
+		https://nsxmgr-01a.corp.local/bin/epsec/epsec-mux.properties
+		https://nsxmgr-01a.corp.local/bin/vdn/nwfabric.properties
+		
+time how long pings take:
+		bping.exe 172.16.30.11 -u -q
+		http://gizmoware.net/bping/		
+		
+Performance testing with IPerf
+		iperf3.exe -c 10.100.23.59 -t 100 -P 20 -b 0
+		iperf3.exe -s
+
+Check openssl testing tls
+		openssl s_client -connect www.example.com:8443 -tls1
+		openssl s_client -connect www.example.com:8443 -tls1_2
+			
+Detecting Duplicate IP for NSX Manager
+		[root@nsxmgr-01a /blue_lane/bin]# ./DetectDuplicateNSXIP.sh
+		arping -D -I mgmt -c 2 $nsx_mgr_ip
+		https://ikb.vmware.com/s/article/2150466
+		Check messages. in /var/log/messages
+
+
+		
+
+look for for vCenter connection issues.			
+		VcConnect
+		ViInventory				
+
+Login account for downloading stuff
+		 dl_admin@vmware.com 
+		 Password: QmA62VTQ%894			
+	
+Template created for 6.1.4
+		search 6.1.4 on gss repro internal
+		
+Test ports with Net cat nc
+		nc -v -u 172.16.10.50 4789
+		nc -lvk -u 4789
+		curl -v telnet://172.16.10.50:4789
+	
+		
+NSX api logs:
+	/usr/appmgmt-webserver/logs/	
+	
+Enable Debug logging for NSX manager service
+	# curl -v -H "Content-Type:application/xml" -k -u admin -X POST https://localhost/api/1.0/services/debug/loglevel/com.vmware.vshield?level=DEBUG
+	undo:
+	# curl -v -H "Content-Type:application/xml" -k -u admin -X POST https://localhost/api/1.0/services/debug/loglevel/com.vmware.vshield?level=INFO
+	
+
+NSX version in nsx log bundle:
+	/status/system/sys_info
+	
+how to kill all pcaps:
+	kill $(lsof |grep pktcap-uw |awk '{print $1}'| sort -u)	
+	
+	or
+	
+	run 
+	# vsish -e ls /net/pktCap/sessions
+	 If there is any folders this means there are captures running. for example:  
+		2/
+		13/
+		14/
+		15/
+		17/ 
+
+	how to kill captures: 
+	# vsish -e set /net/pktCap/destroySession/ 2  
+		
+		
+how to run commands with loops:
+	grep -i agency EAM18727103802.csv | awk -F ":" '{print $4}' | grep -v EsxAgentManager | sort | uniq > -; while read -r line; do echo "AGENCY: $line"; grep "$line" EAM18727103802.csv | grep "agent\[" | awk -F "[" '{print $2}' | sort -n; done < - 
+	simple version:
+	grep -i "string" filename.txt > -; while read -r line; do echo "your output is: $line"; done < -
+
+	
+	
+How to escalate:
+	Comment on PR with template:
+		**************
+		EE Review:
+
+		Steps taken:
+
+		Action for NSBU:
+		**************
+
+	Send email to: gs-ts-amer-rem@vmware.com
+		[SR]:  
+		[Customer Name] / [Entitlement]:  
+		[Product Name]:  
+		[Product Version]:  
+		[PR#]:  
+		[Environment Type]:  production or testing?
+		[Brief description of the issue / customer background]:  
+			Technical summary and what components are being disrupted, attempts to get traction, summary of what's been done by GSS, etc.
+		[Business Justification and Impact]:  
+			What the issue means to the business, what is being held up, customer temp, timelines, etc.
+		[ASK/NEED]
+			What is the specific, immediate need?
+
+Check drivers firmware drops
+	physical nic info
+		# nicinfo.sh.txt 
+	allocated port for pnic info
+		# debugzilla.py  vsi_traverse_-s.txts
+		
+		
+log into vsish on scripts while in commands folder
+		# debugzilla.py  vsi_traverse_-s.txts
+	
+Download OVA from myvmware
+	# use: dl_admin@vmware.com/FT6MFRwzgK832!QU	
+	
+Forgot password to PC? Help Now
+	https://help.vmware.com/
+	1-888-869-2738 (1-888-VMWARE8)
+	
+linux html browser on scripts
+  # lynx index.html	
+	
+new cool less	
+	# lnav *
+	or 
+	# lnave <file> <file2>
+
+
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
